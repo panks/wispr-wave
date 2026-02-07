@@ -8,11 +8,12 @@ class AppState: ObservableObject {
     
     @Published var status: String = "Idle"
     @Published var isListening = false
+    @Published var isAppEnabled = true // Master toggle
     @Published var transcribedText: String = ""
     
     let hotKeyService = HotKeyService()
     let audioRecorder = AudioRecorder()
-    let modelManager = ModelManager()
+    @Published var modelManager = ModelManager()
     let permissionManager = PermissionManager()
     
     var hudWindow: HudWindow?
@@ -23,10 +24,14 @@ class AppState: ObservableObject {
         setupHotKey()
         setupHud()
         
-        // Load model on startup
-        Task {
-            await modelManager.loadModel()
-        }
+        // Forward ModelManager's objectWillChange to AppState's objectWillChange
+        // This ensures that when ModelManager properties change, AppState notifies its observers
+        modelManager.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }.store(in: &cancellables)
+        
+        // No auto-load on startup for now, let user select in UI
+        // or ModelManager will handle auto-selection if we add persistence later.
     }
     
     private func setupHud() {
@@ -57,9 +62,17 @@ class AppState: ObservableObject {
             print("Already listening, returning")
             return
         }
+        
+        // Master switch check
+        guard isAppEnabled else {
+            print("App is disabled")
+            status = "App Disabled"
+            return
+        }
+        
         guard modelManager.isModelLoaded else {
             print("Model not loaded yet")
-            status = "Model Loading..."
+            status = "Model Not Loaded"
             return
         }
         

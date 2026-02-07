@@ -11,25 +11,40 @@ class HotKeyService: ObservableObject {
     var onKeyDown: (() -> Void)?
     var onKeyUp: (() -> Void)?
     
+    var isPaused = false {
+        didSet {
+            hotKey?.isPaused = isPaused
+        }
+    }
+    
     init() {
-        // Default: Command + Shift + ;
-        // We use Carbon key codes.
-        // kVK_ANSI_Semicolon = 0x29 (41)
+        // Default Cmd+Shift+;
+        // 0x29 is semicolon on US keyboard
+        // 0x37 is Command (handled by modifiers)
+        // 0x38 is Shift (handled by modifiers)
+        // Carbon key codes are tricky, usually best to stick to Carbon.Key if possible or use the library's Key enum
+        // HotKey library Key.semicolon
         
-        self.hotKey = HotKey(key: .semicolon, modifiers: [.command, .shift])
+        setupHotKey(key: .semicolon, modifiers: [.command, .shift])
+    }
+    
+    func setupHotKey(key: Key, modifiers: NSEvent.ModifierFlags) {
+        hotKey = HotKey(key: key, modifiers: modifiers)
         
-        self.hotKey?.keyDownHandler = { [weak self] in
+        hotKey?.keyDownHandler = { [weak self] in
             print("HotKey Down")
             self?.onKeyDown?()
         }
         
-        self.hotKey?.keyUpHandler = { [weak self] in
+        hotKey?.keyUpHandler = { [weak self] in
             print("HotKey Up")
             self?.onKeyUp?()
         }
     }
     
     func updateKey(key: Key, modifiers: NSEvent.ModifierFlags) {
-        self.hotKey = HotKey(key: key, modifiers: modifiers)
+        // Pause/Invalidate old one
+        hotKey = nil
+        setupHotKey(key: key, modifiers: modifiers)
     }
 }

@@ -63,22 +63,30 @@ struct ModelSettingsView: View {
     var body: some View {
         Form {
             Section("Current Model") {
-                if !appState.modelManager.availableModels.isEmpty {
-                    Picker("Select Model", selection: Binding(
-                        get: { appState.modelManager.currentModelName },
-                        set: { newValue in
-                            Task {
-                                await appState.modelManager.checkAndLoadModel(name: newValue)
+                Picker("Select Model", selection: Binding(
+                    get: { appState.modelManager.currentModelName ?? "" },
+                    set: { newValue in
+                        Task {
+                            if !newValue.isEmpty {
+                                // In Settings, we assume user wants to switch to an already downloaded model
+                                // or we trigger download? 
+                                // Let's simplify: only show downloaded models in this picker
+                                await appState.modelManager.loadModel(name: newValue)
                             }
                         }
-                    )) {
-                        ForEach(appState.modelManager.availableModels, id: \.self) { model in
-                            Text(model).tag(model)
+                    }
+                )) {
+                    Text("None").tag("")
+                    ForEach(appState.modelManager.supportedModels) { model in
+                        // Only show if downloaded
+                        if appState.modelManager.downloadedModels.contains(model.id) {
+                            Text(model.name).tag(model.id)
                         }
                     }
-                } else {
-                    Text(appState.modelManager.currentModelName)
                 }
+                
+                // If model not downloaded, maybe show a hint?
+                // For now, simpler to just list downloaded ones.
                 
                 Button("Refresh Models") {
                     appState.modelManager.scanModels()

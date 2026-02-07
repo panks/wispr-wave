@@ -4,64 +4,137 @@ struct ContentView: View {
     @ObservedObject var appState = AppState.shared
     
     var body: some View {
-        VStack(spacing: 20) {
-            Text("WisprWave")
-                .font(.headline)
+        VStack(spacing: 16) {
             
-            Text("Status: \(appState.status)")
-                .foregroundStyle(.secondary)
-            
-            // Model Picker
-            if !appState.modelManager.availableModels.isEmpty {
-                Picker("Model", selection: Binding(
-                    get: { appState.modelManager.currentModelName },
-                    set: { newValue in
-                        Task {
-                            await appState.modelManager.checkAndLoadModel(name: newValue)
-                        }
+            // --- Header: Master Toggle ---
+            VStack {
+                Button(action: {
+                    withAnimation {
+                        appState.isAppEnabled.toggle()
                     }
-                )) {
-                    ForEach(appState.modelManager.availableModels, id: \.self) { model in
-                        Text(model).tag(model)
-                    }
+                }) {
+                    Text(appState.isAppEnabled ? "ON" : "OFF")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 120, height: 60)
+                        .background(appState.isAppEnabled ? Color.green : Color.red)
+                        .cornerRadius(12)
                 }
-                .pickerStyle(.menu)
-                .frame(width: 200)
-            } else {
-                 Text("Model: \(appState.modelManager.currentModelName)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            
-            if !appState.permissionManager.isAccessibilityGranted {
-                VStack {
-                    Text("Accessibility Permission Required")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                    Button("Grant Permission") {
-                        appState.permissionManager.requestAccessibilityPermission()
-                    }
+                .buttonStyle(.plain)
+                
+                // Status Text
+                if !appState.isAppEnabled {
+                    Text("App Disabled")
+                        .foregroundStyle(.secondary)
+                } else if let modelId = appState.modelManager.currentModelName {
+                    // Find the display name for the model
+                    let displayName = appState.modelManager.supportedModels.first(where: { $0.id == modelId })?.name ?? modelId
+                    let status = appState.modelManager.isModelLoaded ? "Using model \(displayName)" : "Loading \(displayName)..."
+                    Text(status)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Download a Model")
+                        .foregroundStyle(.secondary)
+                        .foregroundColor(.orange)
                 }
-            } else if appState.modelManager.isDownloading {
-                ProgressView("Downloading...", value: appState.modelManager.downloadProgress, total: 1.0)
-                    .padding()
             }
+            .padding(.top, 10)
             
             Divider()
             
-            Button("Settings...") {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            // --- Model List ---
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(appState.modelManager.supportedModels) { model in
+                        ModelRow(model: model, appState: appState)
+                    }
+                }
+                .padding(.horizontal)
             }
+            .frame(height: 150) // Fixed height for list
             
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
+            Divider()
+            
+            // --- Footer: Download Progress & Hotkey ---
+            VStack(spacing: 8) {
+                if appState.modelManager.isDownloading {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Downloading...")
+                            .font(.caption)
+                        ProgressView(value: appState.modelManager.downloadProgress)
+                    }
+                    .padding(.horizontal)
+                }
+                
+                HotKeyRecorder(appState: appState)
+                    .padding(.bottom, 8)
+                
+                HStack {
+                    Button("Quit") {
+                        NSApplication.shared.terminate(nil)
+                    }
+                    .font(.caption)
+                }
             }
-            .keyboardShortcut("q")
         }
-        .padding()
-        .frame(width: 300, height: 250) // Increased height for picker
+        .frame(width: 320)
+        .padding(.bottom, 10)
         .onAppear {
             appState.modelManager.scanModels()
         }
+    }
+}
+
+struct ModelRow: View {
+    let model: ModelManager.ModelInfo
+    @ObservedObject var appState: AppState
+    
+    var isDownloaded: Bool {
+        appState.modelManager.downloadedModels.contains(model.id)
+    }
+    
+    var isActive: Bool {
+        appState.modelManager.currentModelName == model.id && appState.modelManager.isModelLoaded
+    }
+    
+    var body: some View {
+        HStack {
+            Text(model.name)
+                .font(.system(size: 13))
+                .lineLimit(1)
+            
+            Spacer()
+            
+            // Download Button
+            Button(action: {
+                Task {
+                    await appState.modelManager.downloadModel(modelId: model.id)
+                }
+            }) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 16))
+                    .foregroundColor(isDownloaded || appState.modelManager.isDownloading ? .gray : .blue)
+            }
+            .buttonStyle(.plain)
+            .disabled(isDownloaded || appState.modelManager.isDownloading)
+            
+            // Power/Select Button
+            Button(action: {
+                Task {
+                    await appState.modelManager.loadModel(name: model.id)
+                }
+            }) {
+                Image(systemName: "power")
+                    .font(.system(size: 16))
+                    .foregroundColor(isActive ? .green : (isDownloaded ? .primary : .gray))
+                    // "Only one model can be turned on at a time if the model is turned on the button is green"
+                    // "if the model is not downloaded the button is grayed out/inactive"
+            }
+            .buttonStyle(.plain)
+            .disabled(!isDownloaded)
+        }
+        .padding(6)
+        .background(Color.gray.opacity(0.1))
+        .cornerRadius(6)
     }
 }
