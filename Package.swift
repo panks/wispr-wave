@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "MacSpeechToText",
+    name: "WisprWave",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "MacSpeechToText", targets: ["MacSpeechToText"])
+        .executable(name: "WisprWave", targets: ["WisprWave"])
     ],
     dependencies: [
         .package(url: "https://github.com/argmaxinc/WhisperKit", from: "0.2.0"),
@@ -15,7 +15,7 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "MacSpeechToText",
+            name: "WisprWave",
             dependencies: [
                 .product(name: "WhisperKit", package: "WhisperKit"),
                 "HotKey"

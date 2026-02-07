@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-APP_NAME="MacSpeechToText"
+APP_NAME="WisprWave"
 BUILD_DIR=".build/release"
 APP_BUNDLE="${APP_NAME}.app"
 
@@ -54,12 +54,12 @@ echo "📥 Copying Resources..."
 # Create Resources directory if it doesn't exist
 mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
-# Check for AppIcon.icns in Sources/MacSpeechToText/Resources/
-if [ -f "Sources/MacSpeechToText/Resources/AppIcon.icns" ]; then
+# Check for AppIcon.icns in Sources/WisprWave/Resources/
+if [ -f "Sources/WisprWave/Resources/AppIcon.icns" ]; then
     echo "   Found AppIcon.icns, copying..."
-    cp "Sources/MacSpeechToText/Resources/AppIcon.icns" "${APP_BUNDLE}/Contents/Resources/"
+    cp "Sources/WisprWave/Resources/AppIcon.icns" "${APP_BUNDLE}/Contents/Resources/"
 else
-    echo "⚠️  Warning: Sources/MacSpeechToText/Resources/AppIcon.icns not found."
+    echo "⚠️  Warning: Sources/WisprWave/Resources/AppIcon.icns not found."
     echo "   The app will have the default system icon."
 fi
 

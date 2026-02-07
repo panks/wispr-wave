@@ -2,14 +2,14 @@
 
 # Configuration
 REPO_ID="argmaxinc/whisperkit-coreml"
-TARGET_DIR="$HOME/Library/Application Support/MacSpeechToText/Models"
+TARGET_DIR="$HOME/Library/Application Support/WisprWave/Models"
 
 # Default Model
 DEFAULT_MODEL="openai_whisper-large-v3"
 MODEL_NAME=${1:-$DEFAULT_MODEL}
 
 echo "=========================================="
-echo "    MacSpeechToText Model Downloader"
+echo "    WisprWave Model Downloader"
 echo "=========================================="
 echo "Starting download for model: $MODEL_NAME"
 echo "Target Directory: $TARGET_DIR"
@@ -60,7 +60,7 @@ if [ $EXIT_CODE -eq 0 ]; then
     echo "=========================================="
     echo "Download Complete!"
     echo "Model installed at: $TARGET_DIR/$MODEL_NAME"
-    echo "You can now select '$MODEL_NAME' in the MacSpeechToText settings."
+    echo "You can now select '$MODEL_NAME' in the WisprWave settings."
     echo "=========================================="
 else
     echo "Download Failed. Please check the model name and your internet connection."
