@@ -43,15 +43,50 @@ struct HudView: View {
     @ObservedObject var appState: AppState
     
     var body: some View {
-        HStack {
-            Image(systemName: "mic.fill")
-                .foregroundStyle(.red)
-                .symbolEffect(.pulse, isActive: appState.isListening)
+        HStack(spacing: 12) {
+            if let icon = appState.activeAppIcon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 32, height: 32)
+            }
+            
+            // Replaces Mic Icon with Animation
+            if appState.isListening {
+                RecordingWaveView()
+                    .frame(height: 20)
+                    .padding(.horizontal, 4)
+            }
+            
             Text(appState.status)
-                .font(.headline)
+                .font(.system(size: 14, weight: .medium))
         }
-        .padding()
-        .background(.ultraThinMaterial)
-        .cornerRadius(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Material.ultraThin)
+        .cornerRadius(10)
+        .padding(1) // Border-like effect container if needed
+    }
+}
+
+struct RecordingWaveView: View {
+    @State private var isAnimating = false
+    
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<12) { index in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.gray)
+                    .frame(width: 3, height: isAnimating ? CGFloat.random(in: 8...20) : 4)
+                    .animation(
+                        Animation.easeInOut(duration: 0.35)
+                            .repeatForever()
+                            .delay(Double(index) * 0.1),
+                        value: isAnimating
+                    )
+            }
+        }
+        .onAppear {
+            isAnimating = true
+        }
     }
 }

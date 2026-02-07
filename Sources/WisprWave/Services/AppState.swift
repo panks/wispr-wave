@@ -10,6 +10,7 @@ class AppState: ObservableObject {
     @Published var isListening = false
     @Published var isAppEnabled = true // Master toggle
     @Published var transcribedText: String = ""
+    @Published var activeAppIcon: NSImage? = nil
     @Published var isLegacyMode: Bool = UserDefaults.standard.bool(forKey: "WisprWave.IsLegacyMode") {
         didSet {
             UserDefaults.standard.set(isLegacyMode, forKey: "WisprWave.IsLegacyMode")
@@ -87,6 +88,9 @@ class AppState: ObservableObject {
         Task { @MainActor in
             do {
             if await audioRecorder.requestPermission() {
+                // Capture active app icon
+                self.activeAppIcon = NSWorkspace.shared.frontmostApplication?.icon
+                
                 print("Permission granted, starting recording...")
                 // Audio Feedback
                 NSSound(named: "Tink")?.play()
