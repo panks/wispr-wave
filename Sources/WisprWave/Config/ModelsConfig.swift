@@ -15,6 +15,11 @@ struct ModelsConfig {
             url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930_547MB"
         ),
         ModelInfo(
+            id: "distil-whisper_distil-large-v3_594MB",
+            name: "Distil Whisper Large V3 594",
+            url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/distil-whisper_distil-large-v3_594MB"
+        ),
+        ModelInfo(
             id: "openai_whisper-large-v3-v20240930_turbo",
             name: "Whisper Large V3 T",
             url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930_turbo"
