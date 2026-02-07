@@ -15,3 +15,7 @@ DerivedData/
 
 # Misc
 *.o
+
+# Packaging artifacts
+MacSpeechToText.app/
+MacSpeechToText.zip
