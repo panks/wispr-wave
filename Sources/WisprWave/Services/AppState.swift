@@ -88,6 +88,9 @@ class AppState: ObservableObject {
             do {
             if await audioRecorder.requestPermission() {
                 print("Permission granted, starting recording...")
+                // Audio Feedback
+                NSSound(named: "Tink")?.play()
+                
                 try audioRecorder.startRecording(useLegacy: isLegacyMode)
                 isListening = true
                 status = "Listening..."
@@ -106,6 +109,10 @@ class AppState: ObservableObject {
     
     func stopListening() {
         print("stopListening called - isListening: \(isListening)")
+        
+        // Audio Feedback
+        NSSound(named: "Pop")?.play()
+        
         guard isListening else {
             print("Not listening, returning")
             return
