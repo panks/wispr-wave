@@ -10,6 +10,11 @@ class AppState: ObservableObject {
     @Published var isListening = false
     @Published var isAppEnabled = true // Master toggle
     @Published var transcribedText: String = ""
+    @Published var isLegacyMode: Bool = UserDefaults.standard.bool(forKey: "WisprWave.IsLegacyMode") {
+        didSet {
+            UserDefaults.standard.set(isLegacyMode, forKey: "WisprWave.IsLegacyMode")
+        }
+    }
     
     let hotKeyService = HotKeyService()
     let audioRecorder = AudioRecorder()
@@ -83,7 +88,7 @@ class AppState: ObservableObject {
             do {
             if await audioRecorder.requestPermission() {
                 print("Permission granted, starting recording...")
-                try audioRecorder.startRecording()
+                try audioRecorder.startRecording(useLegacy: isLegacyMode)
                 isListening = true
                 status = "Listening..."
                 print("Recording started, status: \(status)")

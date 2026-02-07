@@ -76,7 +76,12 @@ struct ContentView: View {
                 }
                 
                 HotKeyRecorder(appState: appState)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 4)
+                
+                Toggle("Legacy Mode (VM)", isOn: $appState.isLegacyMode)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("Use file-based recording (slower but more compatible)")
                 
                 HStack {
                     Button("Quit") {
