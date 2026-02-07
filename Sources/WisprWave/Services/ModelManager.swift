@@ -12,21 +12,8 @@ class ModelManager: ObservableObject {
     // UserDefaults key
     private let lastUsedModelKey = "WisprWave.LastUsedModel"
     
-    // Config: List of supported models
-    struct ModelInfo: Identifiable, Equatable {
-        let id: String
-        let name: String
-        let url: String  // HuggingFace tree URL
-    }
-    
-    let supportedModels: [ModelInfo] = [
-        ModelInfo(id: "openai_whisper-large-v3-v20240930_547MB", name: "Whisper Large V3 Quant", url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930_547MB"),
-        ModelInfo(id: "openai_whisper-large-v3", name: "Whisper Large V3", url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3"),
-        ModelInfo(id: "distil-whisper_distil-large-v3", name: "Distil Whisper Large V3", url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/distil-whisper_distil-large-v3"),
-        ModelInfo(id: "openai_whisper-base", name: "Whisper Base", url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-base"),
-        ModelInfo(id: "openai_whisper-small", name: "Whisper Small", url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-small"),
-        ModelInfo(id: "openai_whisper-tiny", name: "Whisper Tiny", url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-tiny")
-    ]
+    // Use models from config
+    let supportedModels = ModelsConfig.supportedModels
     
     @Published var downloadedModels: Set<String> = []
     

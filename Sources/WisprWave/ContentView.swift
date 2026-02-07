@@ -86,7 +86,7 @@ struct ContentView: View {
 }
 
 struct ModelRow: View {
-    let model: ModelManager.ModelInfo
+    let model: ModelsConfig.ModelInfo
     @ObservedObject var appState: AppState
     
     var isDownloaded: Bool {
