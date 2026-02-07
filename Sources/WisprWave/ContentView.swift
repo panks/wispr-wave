@@ -9,9 +9,7 @@ struct ContentView: View {
             // --- Header: Master Toggle ---
             VStack {
                 Button(action: {
-                    withAnimation {
-                        appState.isAppEnabled.toggle()
-                    }
+                    appState.isAppEnabled.toggle()
                 }) {
                     Text(appState.isAppEnabled ? "ON" : "OFF")
                         .font(.system(size: 24, weight: .bold))
@@ -59,8 +57,19 @@ struct ContentView: View {
             VStack(spacing: 8) {
                 if appState.modelManager.isDownloading {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Downloading...")
-                            .font(.caption)
+                        HStack {
+                            Text("Downloading...")
+                                .font(.caption)
+                            Spacer()
+                            Button(action: {
+                                appState.modelManager.cancelDownload()
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Cancel Download")
+                        }
                         ProgressView(value: appState.modelManager.downloadProgress)
                     }
                     .padding(.horizontal)
