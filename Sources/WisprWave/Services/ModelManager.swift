@@ -48,11 +48,6 @@ class ModelManager: ObservableObject {
                     self.currentModelName = nil
                     self.isModelLoaded = false
                 }
-                
-                // If no model is selected but we have downloaded ones, maybe select the first one?
-                // User requirement: "App begins with default in on state... If there is no model present... show text"
-                // We won't auto-select here to respect the "turn on/off" UI explicitly, 
-                // but if we were previously using one, we keep it. 
             }
         } catch {
             print("Error scanning models: \(error)")
@@ -144,69 +139,126 @@ class ModelManager: ObservableObject {
             // Use huggingface-cli to download
             let destinationURL = self.modelStoragePath.appendingPathComponent(modelInfo.id)
             
-            // Create temp directory for download
+            // Use a fresh temp directory for each download to avoid stale locks
             let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             
-            // Run huggingface-cli download
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [
-                "hf",
-                "download",
-                repo,
-                "--include", "\(modelPath)/*",
-                "--local-dir", tempDir.path
-            ]
-            
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
-            
-            try process.run()
-            
-            // Monitor progress (simplified - just wait for completion)
-            // In a more advanced implementation, we could parse output for progress
-            DispatchQueue.main.async {
-                self.downloadProgress = 0.5
+            // Run download in background thread to avoid blocking UI
+            let downloadTask = Task.detached {
+                // Run huggingface-cli download
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                process.arguments = [
+                    "hf",
+                    "download",
+                    repo,
+                    "--include", "\(modelPath)/*",
+                    "--local-dir", tempDir.path
+                ]
+                
+                // Store process for cancellation
+                await self.setDownloadProcess(process)
+                
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                process.standardError = pipe
+                
+                print("Starting download process for \(modelInfo.name)...")
+                try process.run()
+                print("Process started, PID: \(process.processIdentifier)")
+                
+                // Update progress in parallel while download runs
+                await withTaskGroup(of: Void.self) { group in
+                    // Task 1: Monitor and update progress by reading output
+                    group.addTask {
+                        print("Output monitor started")
+                        let handle = pipe.fileHandleForReading
+                        
+                        // Read byte by byte to handle \r (carriage return) updates
+                        // This fixes "stuck" progress when CLI updates the same line
+                        var buffer = Data()
+                        
+                        do {
+                            for try await byte in handle.bytes {
+                                // Check for newline or carriage return
+                                if byte == 10 || byte == 13 { // \n or \r
+                                    if !buffer.isEmpty, let line = String(data: buffer, encoding: .utf8) {
+                                        print("HF Output: \(line)") // Debug logging
+                                        
+                                        // Parse progress
+                                        // Look for pattern like "Downloading: 45%" or just "45%"
+                                        if let range = line.range(of: #"(\d+)%"#, options: .regularExpression) {
+                                            let percentStr = line[range].dropLast()
+                                            if let percent = Double(percentStr) {
+                                                await MainActor.run {
+                                                    self.downloadProgress = percent / 100.0
+                                                }
+                                            }
+                                        }
+                                    }
+                                    buffer.removeAll()
+                                } else {
+                                    buffer.append(byte)
+                                }
+                            }
+                        } catch {
+                            print("Error reading output: \(error)")
+                        }
+                        print("Output monitor finished")
+                    }
+                    
+                    // Task 2: Wait for process completion
+                    group.addTask {
+                        process.waitUntilExit()
+                        print("Process completed with status: \(process.terminationStatus)")
+                        // Close pipe to terminate the line reader
+                        try? pipe.fileHandleForReading.close()
+                    }
+                    
+                    // Wait for both tasks
+                    await group.waitForAll()
+                }
+                
+                // clear process
+                await self.setDownloadProcess(nil)
+                
+                guard process.terminationStatus == 0 else {
+                    // We can't easily get the full error output here since we consumed it above,
+                    // but we printed it to console.
+                    throw NSError(domain: "ModelManager", code: 3, userInfo: [NSLocalizedDescriptionKey: "Download failed. Check logs for details."])
+                }
+                
+                print("Moving downloaded files...")
+                
+                // Move downloaded model to destination
+                let downloadedModelPath = tempDir.appendingPathComponent(modelPath)
+                
+                // Remove destination if exists
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try FileManager.default.removeItem(at: destinationURL)
+                }
+                
+                // Move
+                try FileManager.default.moveItem(at: downloadedModelPath, to: destinationURL)
+                
+                // Clean up temp directory for this model
+                try? FileManager.default.removeItem(at: tempDir)
+                
+                print("Download and move complete!")
             }
             
-            process.waitUntilExit()
+            try await downloadTask.value
             
-            guard process.terminationStatus == 0 else {
-                let data = try pipe.fileHandleForReading.readToEnd() ?? Data()
-                let output = String(data: data, encoding: .utf8) ?? "Unknown error"
-                throw NSError(domain: "ModelManager", code: 3, userInfo: [NSLocalizedDescriptionKey: "Download failed: \(output)"])
-            }
-            
-            // Move downloaded model to destination
-            let downloadedModelPath = tempDir.appendingPathComponent(modelPath)
-            
-            // Remove destination if exists
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                try FileManager.default.removeItem(at: destinationURL)
-            }
-            
-            // Move
-            try FileManager.default.moveItem(at: downloadedModelPath, to: destinationURL)
-            
-            // Clean up temp directory
-            try? FileManager.default.removeItem(at: tempDir)
-            
-            DispatchQueue.main.async {
-                self.scanModels() // Refresh list
-                self.isDownloading = false
-                self.downloadProgress = 1.0
-            }
-            
-            print("Download complete: \(destinationURL.path)")
+            // Update UI on main thread
+            print("Updating UI after download completion")
+            self.scanModels() // Refresh list
+            self.isDownloading = false
+            self.downloadProgress = 1.0
             
         } catch {
             print("Error downloading: \(error)")
-            DispatchQueue.main.async {
-                self.isDownloading = false
-                self.downloadProgress = 0.0
-            }
+            self.isDownloading = false
+            self.downloadProgress = 0.0
         }
     }
     
@@ -222,5 +274,24 @@ class ModelManager: ObservableObject {
         
         let result = try await whisperKit.transcribe(audioPath: audioPath)
         return result.map { $0.text }.joined(separator: " ")
+    }
+    
+    // Track current process for cancellation
+    private var currentDownloadProcess: Process?
+    
+    // Thread-safe process setter
+    private func setDownloadProcess(_ process: Process?) {
+        self.currentDownloadProcess = process
+    }
+    
+    // Cancel any active download
+    func cancelDownload() {
+        if let process = currentDownloadProcess {
+            print("Cancelling download process (PID: \(process.processIdentifier))")
+            process.terminate()
+            currentDownloadProcess = nil
+        }
+        isDownloading = false
+        downloadProgress = 0.0
     }
 }

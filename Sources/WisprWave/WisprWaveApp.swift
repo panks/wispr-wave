@@ -46,5 +46,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
+    
+    func applicationWillTerminate(_ notification: Notification) {
+        // Cancel any active downloads synchronously
+        // Since we are on MainActor, we can call this directly to ensure it runs before exit
+        AppState.shared.modelManager.cancelDownload()
+    }
 
 }
