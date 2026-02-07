@@ -20,7 +20,7 @@ class AppState: ObservableObject {
     let hotKeyService = HotKeyService()
     let audioRecorder = AudioRecorder()
     @Published var modelManager = ModelManager()
-    let permissionManager = PermissionManager()
+    @Published var permissionManager = PermissionManager()
     
     var hudWindow: HudWindow?
     

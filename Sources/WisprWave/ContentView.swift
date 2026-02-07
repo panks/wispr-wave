@@ -39,6 +39,31 @@ struct ContentView: View {
             }
             .padding(.top, 10)
             
+            // --- Accessibility Warning ---
+            if !appState.permissionManager.isAccessibilityGranted {
+                VStack(spacing: 8) {
+                    Text("Accessibility Permission Required")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.red)
+                    
+                    Text("Grant permission to allow text injection.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    
+                    Button("Grant Permission") {
+                        appState.permissionManager.requestAccessibilityPermission()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+                .padding(8)
+                .background(Color.red.opacity(0.1))
+                .cornerRadius(8)
+                .padding(.horizontal)
+            }
+            
             Divider()
             
             // --- Model List ---
