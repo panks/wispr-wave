@@ -106,12 +106,21 @@ class AppState: ObservableObject {
             return
         }
         
-        let audioFile = audioRecorder.stopRecording()
-        print("Recording stopped, audio file: \(audioFile.path)")
+        // Optimistic UI Update: immediately reflect state change
         isListening = false
-        status = "Transcribing..."
+        status = "Finishing..."
+        hudWindow?.hide() // Hide immediately as requested by user
         
         Task { @MainActor in
+            // Yield execution to allow the UI to render the "Finishing..." state
+            // This prevents the "freeze" feeling while the recorder stops
+            try? await Task.sleep(nanoseconds: 50 * 1_000_000) // 50ms buffer
+            
+            let audioFile = audioRecorder.stopRecording()
+            print("Recording stopped, audio file: \(audioFile.path)")
+            
+            status = "Transcribing..."
+            
             do {
                 print("Starting transcription...")
                 if let text = try await modelManager.transcribe(audioPath: audioFile.path) {

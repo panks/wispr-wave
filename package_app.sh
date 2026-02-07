@@ -15,6 +15,7 @@ mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
 echo "📋 Copying executable..."
 cp "${BUILD_DIR}/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/"
+chmod +x "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 
 echo "📝 Generating Info.plist..."
 cat <<EOF > "${APP_BUNDLE}/Contents/Info.plist"
