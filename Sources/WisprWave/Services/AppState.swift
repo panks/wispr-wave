@@ -116,14 +116,14 @@ class AppState: ObservableObject {
             // This prevents the "freeze" feeling while the recorder stops
             try? await Task.sleep(nanoseconds: 50 * 1_000_000) // 50ms buffer
             
-            let audioFile = audioRecorder.stopRecording()
-            print("Recording stopped, audio file: \(audioFile.path)")
+            let audioSamples = audioRecorder.stopRecording()
+            print("Recording stopped, captured \(audioSamples.count) samples")
             
             status = "Transcribing..."
             
             do {
                 print("Starting transcription...")
-                if let text = try await modelManager.transcribe(audioPath: audioFile.path) {
+                if let text = try await modelManager.transcribe(audioSamples: audioSamples) {
                     transcribedText = text
                     status = "Done: \(text)"
                     

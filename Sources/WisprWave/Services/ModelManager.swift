@@ -278,6 +278,13 @@ class ModelManager: ObservableObject {
         return result.map { $0.text }.joined(separator: " ")
     }
     
+    func transcribe(audioSamples: [Float]) async throws -> String? {
+        guard let whisperKit = whisperKit else { return nil }
+        
+        let result = try await whisperKit.transcribe(audioArray: audioSamples)
+        return result.map { $0.text }.joined(separator: " ")
+    }
+    
     // Track current process for cancellation
     private var currentDownloadProcess: Process?
     

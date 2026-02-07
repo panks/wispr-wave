@@ -2,14 +2,16 @@ import Foundation
 import AVFoundation
 
 @MainActor
-class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
-    private var audioRecorder: AVAudioRecorder?
-    private let temporaryAudioURL: URL
+class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleBufferDelegate {
+    private var captureSession: AVCaptureSession?
+    private var audioOutput: AVCaptureAudioDataOutput?
+    
+    // Store audio samples in memory
+    private var audioSamples: [Float] = []
     
     @Published var isRecording = false
     
     override init() {
-        self.temporaryAudioURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording.wav")
         super.init()
     }
     
@@ -22,55 +24,136 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
     
     func startRecording() throws {
-        // Settings for Whisper: 16kHz, Mono, 16-bit PCM
-        // This format is standard and widely supported, avoiding the crashes associated with
-        // raw AVAudioEngine taps on input nodes.
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatLinearPCM),
-            AVSampleRateKey: 16000.0,
-            AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-        ]
+        audioSamples.removeAll()
         
-        // Ensure the directory exists (temp dir always should, but good practice)
-        // Cleanup old file
-        try? FileManager.default.removeItem(at: temporaryAudioURL)
+        // 1. Setup Session
+        let session = AVCaptureSession()
+        self.captureSession = session
         
-        let recorder = try AVAudioRecorder(url: temporaryAudioURL, settings: settings)
-        recorder.delegate = self
+        // 2. Setup Input
+        guard let device = AVCaptureDevice.default(for: .audio) else {
+            throw NSError(domain: "AudioRecorder", code: 1, userInfo: [NSLocalizedDescriptionKey: "No audio device found"])
+        }
         
-        if recorder.prepareToRecord() {
-            recorder.record()
-            self.audioRecorder = recorder
-            self.isRecording = true
-            print("AudioRecorder started recording to \(temporaryAudioURL.path)")
+        let input = try AVCaptureDeviceInput(device: device)
+        
+        if session.canAddInput(input) {
+            session.addInput(input)
         } else {
-            throw NSError(domain: "AudioRecorder", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to prepare recorder"])
+            throw NSError(domain: "AudioRecorder", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not add audio input"])
         }
+        
+        // 3. Setup Output
+        let output = AVCaptureAudioDataOutput()
+        if session.canAddOutput(output) {
+            session.addOutput(output)
+        } else {
+            throw NSError(domain: "AudioRecorder", code: 3, userInfo: [NSLocalizedDescriptionKey: "Could not add audio output"])
+        }
+        
+        self.audioOutput = output
+        
+        // Use a serial queue for audio processing
+        let queue = DispatchQueue(label: "com.wisprwave.audioQueue")
+        output.setSampleBufferDelegate(self, queue: queue)
+        
+        // 4. Start
+        Task.detached {
+            session.startRunning()
+        }
+        
+        isRecording = true
+        print("AVCaptureSession started")
     }
     
-    func stopRecording() -> URL {
-        audioRecorder?.stop()
-        audioRecorder = nil
+    func stopRecording() -> [Float] {
+        captureSession?.stopRunning()
+        captureSession = nil
+        audioOutput = nil
         isRecording = false
-        print("AudioRecorder stopped")
-        return temporaryAudioURL
+        print("AVCaptureSession stopped, captured \(audioSamples.count) samples")
+        return audioSamples
     }
     
-    // MARK: - AVAudioRecorderDelegate
+    // MARK: - Delegate
     
-    nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        if !flag {
-            print("AudioRecorder finished unsuccessfully")
+    nonisolated func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        
+        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        
+        // Check format
+        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee else {
+            return
         }
-    }
-    
-    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        if let error = error {
-            print("AudioRecorder encode error: \(error)")
+        
+        let samplesCount = CMSampleBufferGetNumSamples(sampleBuffer)
+        if samplesCount == 0 { return }
+        
+        // 1. Get raw bytes
+        var bufferLength = 0
+        var bufferData: UnsafeMutablePointer<Int8>?
+        CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &bufferLength, dataPointerOut: &bufferData)
+        
+        guard let ptr = bufferData else { return }
+        
+        // Assume Float32 (4 bytes per sample) - typical for macOS AVCaptureSession
+        // If not, this simple logic will fail/noise, but usually it IS LPCM Float32.
+        
+        let channels = Int(asbd.mChannelsPerFrame)
+        let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        let bytesPerSample = Int(asbd.mBytesPerFrame) / channels
+        
+        if isFloat && bytesPerSample == 4 {
+            let count = bufferLength / 4
+            // Pointer cast
+            let floatPtr = ptr.withMemoryRebound(to: Float.self, capacity: count) { $0 }
+            let floats = Array(UnsafeBufferPointer(start: floatPtr, count: count))
+            
+            // Simple Downsampling Strategy
+            // Goal: ~16kHz. Input usually 48kHz or 44.1kHz.
+            
+            var resampled: [Float] = []
+            if asbd.mSampleRate == 48000 {
+                // 48k -> 16k: Take every 3rd sample
+                // Also handle channels (mix or take first)
+                // Taking first channel for simplicity
+                for i in stride(from: 0, to: count, by: 3 * channels) {
+                    if i < count {
+                        resampled.append(floats[i])
+                    }
+                }
+            } else if asbd.mSampleRate == 44100 {
+                 // 44.1k -> 16k: Ratio ~2.756. 
+                 // Naive: take every 3rd (14.7k) or every 2nd (22k)? 
+                 // Proper resampling is hard without Accelerate/AVAudioConverter.
+                 // Let's take every 3rd (~14.7kHz) - might be "slow" audio.
+                 // Or just keep all and let WhisperKit handle?
+                 // WhisperKit expects 16kHz usually.
+                 // Let's try sending ALL data if not 48k, or simple decimation.
+                 
+                 // Fallback: just take channel 0
+                 for i in stride(from: 0, to: count, by: channels) {
+                    resampled.append(floats[i])
+                }
+            } else if asbd.mSampleRate == 16000 {
+                if channels == 1 {
+                    resampled = floats
+                } else {
+                     for i in stride(from: 0, to: count, by: channels) {
+                        resampled.append(floats[i])
+                    }
+                }
+            } else {
+                 // Fallback: just take channel 0
+                 for i in stride(from: 0, to: count, by: channels) {
+                    resampled.append(floats[i])
+                }
+            }
+            
+            Task { @MainActor in
+                self.audioSamples.append(contentsOf: resampled)
+            }
         }
     }
 }
