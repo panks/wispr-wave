@@ -17,5 +17,5 @@ DerivedData/
 *.o
 
 # Packaging artifacts
-MacSpeechToText.app/
-MacSpeechToText.zip
+WisprWave.app/
+WisprWave.zip

@@ -31,6 +31,8 @@ class ModelManager: ObservableObject {
         // Create directory if it doesn't exist
         try? FileManager.default.createDirectory(at: modelStoragePath, withIntermediateDirectories: true)
         
+        print("ModelManager initialized. Storage path: \(modelStoragePath.path)")
+        
         // Scan for existing models
         scanModels()
     }

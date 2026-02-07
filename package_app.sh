@@ -63,6 +63,24 @@ else
     echo "   The app will have the default system icon."
 fi
 
+
+
+echo "� Generating Entitlements.plist..."
+cat <<EOF > "Entitlements.plist"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.get-task-allow</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+echo "�🔑 Applying ad-hoc signature with entitlements..."
+codesign --force --deep --entitlements "Entitlements.plist" --sign - "${APP_BUNDLE}"
+rm "Entitlements.plist"
+
 echo "✅ App Bundle created at ${APP_BUNDLE}"
 echo "🎉 You can now zip this app and share it!"
 echo "   Run: zip -r ${APP_NAME}.zip ${APP_BUNDLE}"
