@@ -14,11 +14,12 @@ struct ContentView: View {
                     Text(appState.isAppEnabled ? "ON" : "OFF")
                         .font(.system(size: 24, weight: .bold))
                         .foregroundColor(.white)
-                        .frame(width: 120, height: 60)
+                        .frame(width: 120, height: 48)
                         .background(appState.isAppEnabled ? Color.green : Color.red)
                         .cornerRadius(12)
                 }
                 .buttonStyle(.plain)
+                .padding(.vertical, 8)
                 
                 // Status Text
                 if !appState.isAppEnabled {
