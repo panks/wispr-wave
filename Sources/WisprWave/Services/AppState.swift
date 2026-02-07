@@ -30,8 +30,11 @@ class AppState: ObservableObject {
             self?.objectWillChange.send()
         }.store(in: &cancellables)
         
-        // No auto-load on startup for now, let user select in UI
-        // or ModelManager will handle auto-selection if we add persistence later.
+        // Auto-load last used model after scanning
+        Task {
+            modelManager.scanModels()
+            await modelManager.loadLastUsedModel()
+        }
     }
     
     private func setupHud() {

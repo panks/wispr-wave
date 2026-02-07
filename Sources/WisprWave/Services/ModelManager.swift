@@ -9,6 +9,9 @@ class ModelManager: ObservableObject {
     @Published var currentModelName: String? = nil
     @Published var isModelLoaded = false
     
+    // UserDefaults key
+    private let lastUsedModelKey = "WisprWave.LastUsedModel"
+    
     // Config: List of supported models
     struct ModelInfo: Identifiable, Equatable {
         let id: String
@@ -93,12 +96,27 @@ class ModelManager: ObservableObject {
             self.whisperKit = pipe
             self.isModelLoaded = true  // Update on main actor
             
+            // Save as last used model
+            UserDefaults.standard.set(name, forKey: lastUsedModelKey)
+            
             print("WhisperKit loaded successfully")
         } catch {
             print("Error loading model: \(error)")
             self.currentModelName = nil // Load failed
             self.isModelLoaded = false
         }
+    }
+    
+    // Auto-load last used model if available
+    func loadLastUsedModel() async {
+        guard let lastModel = UserDefaults.standard.string(forKey: lastUsedModelKey),
+              downloadedModels.contains(lastModel) else {
+            print("No last used model to load")
+            return
+        }
+        
+        print("Auto-loading last used model: \(lastModel)")
+        await loadModel(name: lastModel)
     }
     
     // Download a specific model (User clicked "Download")

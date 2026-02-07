@@ -5,7 +5,7 @@ import Carbon
 struct HotKeyRecorder: View {
     @ObservedObject var appState: AppState
     @State private var isRecording = false
-    @State private var keyString = "Cmd + Shift + ;" // Initial default
+    @State private var keyString = "" // Will be set from HotKeyService
     
     var body: some View {
         HStack {
@@ -35,6 +35,10 @@ struct HotKeyRecorder: View {
                 // but for a menu bar app simple focus might be tricky.
                 // We'll use a local event monitor when recording.
             })
+        }
+        .onAppear {
+            // Initialize from current hotkey
+            updateDisplayString()
         }
         .onChange(of: isRecording) { recording in
             if recording {
@@ -74,6 +78,21 @@ struct HotKeyRecorder: View {
             NSEvent.removeMonitor(monitor)
             self.monitor = nil
         }
+    }
+    
+    
+    private func updateDisplayString() {
+        let key = appState.hotKeyService.currentKey
+        let modifiers = appState.hotKeyService.currentModifiers
+        
+        var str = ""
+        if modifiers.contains(.control) { str += "Ctrl + " }
+        if modifiers.contains(.option) { str += "Opt + " }
+        if modifiers.contains(.shift) { str += "Shift + " }
+        if modifiers.contains(.command) { str += "Cmd + " }
+        str += key.description.capitalized
+        
+        self.keyString = str
     }
     
     private func updateHotKey(key: Key?, modifiers: NSEvent.ModifierFlags) {
