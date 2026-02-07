@@ -47,7 +47,7 @@ struct ContentView: View {
                         .fontWeight(.bold)
                         .foregroundColor(.red)
                     
-                    Text("Grant permission to allow text injection.")
+                    Text("Grant permission to allow text insertion.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
