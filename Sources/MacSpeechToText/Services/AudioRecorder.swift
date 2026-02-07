@@ -1,22 +1,19 @@
 import Foundation
-@preconcurrency import AVFoundation
+import AVFoundation
 
 @MainActor
-class AudioRecorder: ObservableObject {
-    private var audioEngine: AVAudioEngine
-    private var inputNode: AVAudioInputNode
-    private var audioFile: AVAudioFile?
+class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
+    private var audioRecorder: AVAudioRecorder?
     private let temporaryAudioURL: URL
     
     @Published var isRecording = false
     
-    init() {
-        self.audioEngine = AVAudioEngine()
-        self.inputNode = audioEngine.inputNode
+    override init() {
         self.temporaryAudioURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording.wav")
+        super.init()
     }
     
-    func requestPermission() async -> Bool {
+    nonisolated func requestPermission() async -> Bool {
         return await withCheckedContinuation { continuation in
             AVCaptureDevice.requestAccess(for: .audio) { granted in
                 continuation.resume(returning: granted)
@@ -25,70 +22,55 @@ class AudioRecorder: ObservableObject {
     }
     
     func startRecording() throws {
-        let inputFormat = inputNode.outputFormat(forBus: 0)
-        
-        // Target format: 16kHz, Mono, PCM 16-bit
-        let targetSettings: [String: Any] = [
+        // Settings for Whisper: 16kHz, Mono, 16-bit PCM
+        // This format is standard and widely supported, avoiding the crashes associated with
+        // raw AVAudioEngine taps on input nodes.
+        let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatLinearPCM),
             AVSampleRateKey: 16000.0,
             AVNumberOfChannelsKey: 1,
             AVLinearPCMBitDepthKey: 16,
             AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false
+            AVLinearPCMIsBigEndianKey: false,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
-        guard let targetFormat = AVAudioFormat(settings: targetSettings) else {
-            throw NSError(domain: "AudioRecorder", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid Audio Format"])
-        }
         
-        // Prepare file for writing
-        // Deleting old file
+        // Ensure the directory exists (temp dir always should, but good practice)
+        // Cleanup old file
         try? FileManager.default.removeItem(at: temporaryAudioURL)
-        audioFile = try AVAudioFile(forWriting: temporaryAudioURL, settings: targetSettings)
         
-        // Setup Converter
-        guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
-            throw NSError(domain: "AudioRecorder", code: 2, userInfo: [NSLocalizedDescriptionKey: "Cannot create audio converter"])
+        let recorder = try AVAudioRecorder(url: temporaryAudioURL, settings: settings)
+        recorder.delegate = self
+        
+        if recorder.prepareToRecord() {
+            recorder.record()
+            self.audioRecorder = recorder
+            self.isRecording = true
+            print("AudioRecorder started recording to \(temporaryAudioURL.path)")
+        } else {
+            throw NSError(domain: "AudioRecorder", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to prepare recorder"])
         }
-        
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] (buffer, time) in
-            guard let self = self, let audioFile = self.audioFile else { return }
-            
-            var error: NSError?
-            let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
-                outStatus.pointee = .haveData
-                return buffer
-            }
-            
-            // Calculate output buffer size ratio
-            let ratio = targetFormat.sampleRate / inputFormat.sampleRate
-            let capacity = UInt32(Double(buffer.frameCapacity) * ratio)
-            
-            if let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) {
-                converter.convert(to: outputBuffer, error: &error, withInputFrom: inputBlock)
-                
-                if let error = error {
-                    print("Conversion error: \(error)")
-                    return
-                }
-                
-                do {
-                    try audioFile.write(from: outputBuffer)
-                } catch {
-                    print("Write error: \(error)")
-                }
-            }
-        }
-        
-        audioEngine.prepare()
-        try audioEngine.start()
-        DispatchQueue.main.async { self.isRecording = true }
     }
     
     func stopRecording() -> URL {
-        audioEngine.stop()
-        inputNode.removeTap(onBus: 0)
-        audioFile = nil
-        DispatchQueue.main.async { self.isRecording = false }
+        audioRecorder?.stop()
+        audioRecorder = nil
+        isRecording = false
+        print("AudioRecorder stopped")
         return temporaryAudioURL
+    }
+    
+    // MARK: - AVAudioRecorderDelegate
+    
+    nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        if !flag {
+            print("AudioRecorder finished unsuccessfully")
+        }
+    }
+    
+    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+        if let error = error {
+            print("AudioRecorder encode error: \(error)")
+        }
     }
 }

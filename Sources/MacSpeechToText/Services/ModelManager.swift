@@ -8,6 +8,7 @@ class ModelManager: ObservableObject {
     @Published var downloadProgress: Double = 0.0
     @Published var currentModelName: String = "distil-large-v3" // Default model
     @Published var isModelLoaded = false
+    @Published var availableModels: [String] = []
     
     var whisperKit: WhisperKit?
     
@@ -23,36 +24,79 @@ class ModelManager: ObservableObject {
         
         // Create directory if it doesn't exist
         try? FileManager.default.createDirectory(at: modelStoragePath, withIntermediateDirectories: true)
+        
+        // Scan for existing models
+        scanModels()
+    }
+    
+    func scanModels() {
+        do {
+            let items = try FileManager.default.contentsOfDirectory(at: modelStoragePath, includingPropertiesForKeys: nil)
+            let models = items.filter { $0.hasDirectoryPath }.map { $0.lastPathComponent }
+            
+            DispatchQueue.main.async {
+                self.availableModels = models
+                
+                // Auto-select logic:
+                // If we found models, and the current default model is NOT among them,
+                // automatically switch to the first available model to avoid unwanted downloads.
+                if !models.isEmpty && !models.contains(self.currentModelName) {
+                    if let firstModel = models.first {
+                        print("Default model not found, switching to available: \(firstModel)")
+                        self.currentModelName = firstModel
+                        // Trigger load for this new model if we aren't already loaded
+                        Task {
+                            await self.checkAndLoadModel(name: firstModel)
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("Error scanning models: \(error)")
+        }
+    }
+    
+    func checkAndLoadModel(name: String) async {
+        guard currentModelName != name || !isModelLoaded else { return }
+        
+        // Update state
+        self.currentModelName = name
+        self.isModelLoaded = false
+        self.isDownloading = true
+        self.downloadProgress = 0.0
+        
+        await loadModel()
     }
     
     func loadModel() async {
-        guard !isModelLoaded else { return }
-        
-        DispatchQueue.main.async {
-            self.isDownloading = true
-            self.downloadProgress = 0.0
-        }
-        
         do {
             print("Loading WhisperKit with model: \(currentModelName)")
             
             // Ensure model directory exists
             try? FileManager.default.createDirectory(at: modelStoragePath, withIntermediateDirectories: true)
             
-            // Initialize WhisperKit
-            // Note: In a production app, we would use WhisperKit.download(variant: ...) to control the path explicitly.
-            // For this version, we let WhisperKit manage its cache but point it to our preferred model name.
-            // We can later move files if strictly necessary, but sticking to the library's default cache is often safer for updates.
-            // However, to respect the user's wish for a specific folder, we would need to check if the library supports `storageURI`.
-            // Current WhisperKit versions often allow `storage` parameter in init.
+            // Check if model exists locally in our custom storage
+            let localModelURL = modelStoragePath.appendingPathComponent(currentModelName)
+            let pipe: WhisperKit
             
-            let pipe = try await WhisperKit(model: currentModelName)
+            if FileManager.default.fileExists(atPath: localModelURL.path) {
+                print("Found local model at: \(localModelURL.path)")
+                // Use WhisperKitConfig with modelFolder for local models
+                let config = WhisperKitConfig(modelFolder: localModelURL.path)
+                pipe = try await WhisperKit(config)
+            } else {
+                print("Model not found locally, downloading default: \(currentModelName)")
+                pipe = try await WhisperKit(model: currentModelName)
+            }
+            
             self.whisperKit = pipe
             
             DispatchQueue.main.async {
                 self.isModelLoaded = true
                 self.isDownloading = false
                 self.downloadProgress = 1.0
+                // Rescan to update list if a new model was downloaded
+                self.scanModels()
             }
             print("WhisperKit loaded successfully")
             

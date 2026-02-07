@@ -63,7 +63,26 @@ struct ModelSettingsView: View {
     var body: some View {
         Form {
             Section("Current Model") {
-                Text(appState.modelManager.currentModelName)
+                if !appState.modelManager.availableModels.isEmpty {
+                    Picker("Select Model", selection: Binding(
+                        get: { appState.modelManager.currentModelName },
+                        set: { newValue in
+                            Task {
+                                await appState.modelManager.checkAndLoadModel(name: newValue)
+                            }
+                        }
+                    )) {
+                        ForEach(appState.modelManager.availableModels, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                } else {
+                    Text(appState.modelManager.currentModelName)
+                }
+                
+                Button("Refresh Models") {
+                    appState.modelManager.scanModels()
+                }
             }
             
             if appState.modelManager.isDownloading {
@@ -76,7 +95,18 @@ struct ModelSettingsView: View {
                 Text(appState.modelManager.isModelLoaded ? "Model Loaded Ready" : "Model Not Loaded")
                     .foregroundStyle(appState.modelManager.isModelLoaded ? .green : .orange)
             }
+            
+            Section("Model Storage") {
+                Text("Place complete WhisperKit model folders in:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Link("Open Models Folder", destination: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appendingPathComponent("MacSpeechToText/Models"))
+                    .font(.caption)
+            }
         }
         .padding()
+        .onAppear {
+            appState.modelManager.scanModels()
+        }
     }
 }

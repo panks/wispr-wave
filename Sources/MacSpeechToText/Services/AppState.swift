@@ -35,18 +35,30 @@ class AppState: ObservableObject {
     }
     
     private func setupHotKey() {
-        hotKeyService.onKeyDown = { [weak self] in
-            self?.startListening()
-        }
-        
+        // Toggle mode: only respond to keyUp, ignore keyDown repeats
         hotKeyService.onKeyUp = { [weak self] in
-            self?.stopListening()
+            Task { @MainActor in
+                self?.toggleListening()
+            }
+        }
+    }
+    
+    func toggleListening() {
+        if isListening {
+            stopListening()
+        } else {
+            startListening()
         }
     }
     
     func startListening() {
-        guard !isListening else { return }
+        print("startListening called - isListening: \(isListening), modelLoaded: \(modelManager.isModelLoaded)")
+        guard !isListening else {
+            print("Already listening, returning")
+            return
+        }
         guard modelManager.isModelLoaded else {
+            print("Model not loaded yet")
             status = "Model Loading..."
             return
         }
@@ -54,40 +66,53 @@ class AppState: ObservableObject {
         Task { @MainActor in
             do {
             if await audioRecorder.requestPermission() {
+                print("Permission granted, starting recording...")
                 try audioRecorder.startRecording()
                 isListening = true
                 status = "Listening..."
+                print("Recording started, status: \(status)")
                 hudWindow?.show()
             } else {
+                print("Permission denied")
                 status = "Permission Denied"
             }
             } catch {
+                print("Error starting recording: \(error)")
                 status = "Error: \(error.localizedDescription)"
             }
         }
     }
     
     func stopListening() {
-        guard isListening else { return }
+        print("stopListening called - isListening: \(isListening)")
+        guard isListening else {
+            print("Not listening, returning")
+            return
+        }
         
         let audioFile = audioRecorder.stopRecording()
+        print("Recording stopped, audio file: \(audioFile.path)")
         isListening = false
         status = "Transcribing..."
         
         Task { @MainActor in
             do {
+                print("Starting transcription...")
                 if let text = try await modelManager.transcribe(audioPath: audioFile.path) {
                     transcribedText = text
                     status = "Done: \(text)"
                     
                     // Inject Text
+                    print("Injecting text: \(text)")
                     TextInjector.shared.inject(text: text)
                     
                     print("Transcribed: \(text)")
                 } else {
+                    print("Transcription returned nil")
                     status = "Transcription Failed"
                 }
             } catch {
+                print("Transcription error: \(error)")
                 status = "Error: \(error.localizedDescription)"
             }
             
