@@ -18,20 +18,47 @@ class TextInjector {
             return
         }
         
-        // Set new text to clipboard
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-        
-        // Simulate Cmd+V
-        simulatePasteCommand()
-        
-        // Note: We previously attempted to save/restore the clipboard,
-        // but reading pasteboard items on the Main Actor can cause hangs
-        // if the clipboard owner is unresponsive. For stability, we 
-        // currently overwrite the clipboard without restoring.
+        // Use a background task to save/restore clipboard to avoid Main Thread hangs
+        Task.detached(priority: .userInitiated) {
+            // 1. Save current clipboard (on background thread)
+            // Accessed directly to avoid capturing non-Sendable instance across actors
+            let pasteboard = NSPasteboard.general
+            // NSPasteboardItem does not conform to NSCopying, so we must manually copy data
+            var oldItems: [NSPasteboardItem] = []
+            if let params = pasteboard.pasteboardItems {
+                for item in params {
+                    let newItem = NSPasteboardItem()
+                    for type in item.types {
+                        if let data = item.data(forType: type) {
+                            newItem.setData(data, forType: type)
+                        }
+                    }
+                    oldItems.append(newItem)
+                }
+            }
+            
+            // 2. Set new text (must be done effectively immediately before pasting)
+            await MainActor.run {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(text, forType: .string)
+            }
+            
+            // 3. Simulate Cmd+V
+            await self.simulatePasteCommand()
+            
+            // 4. Restore clipboard after a delay
+            try? await Task.sleep(nanoseconds: 500 * 1_000_000) // 0.5 seconds
+            
+            await MainActor.run {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.writeObjects(oldItems)
+            }
+        }
     }
     
+    @MainActor
     private func simulatePasteCommand() {
         let source = CGEventSource(stateID: .hidSystemState)
         
