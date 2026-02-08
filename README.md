@@ -64,6 +64,10 @@ WisprWave is open-source. Build it directly from the codebase in minutes.
     open WisprWave.app
     ```
 
+    > **⚠️ Note:** Since this app is not signed with an Apple Developer ID, macOS (Gatekeeper) may block it.
+    > *   **System Settings:** Go to *System Settings > Privacy & Security* and click "Open Anyway" near the bottom.
+    > *   **Alternative:** Right-click the app in Finder, select *Open*, and confirm in the dialog.
+
 4.  **Permissions:**
     On first launch, grant **Accessibility** (for text injection) and **Microphone** permissions when prompted. The menu bar icon will appear, ready for action!
 
