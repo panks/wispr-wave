@@ -4,6 +4,13 @@
 
 **WisprWave** brings OpenAI's powerful **Whisper** models directly to your Mac menu bar. Experience class-leading transcription speed and accuracy without sending a single byte of data to the cloud. It's completely free, works offline, and injects text into *any* application.
 
+
+<p align="center">
+  <img src="docs/assets/menu-ss.png" alt="Quick Menu Access" height="400">
+  &nbsp; &nbsp;
+  <img src="docs/assets/in-action-ss.png" alt="Dictate Into Any App" height="400">
+</p>
+
 ---
 
 ## 🚀 Key Features
