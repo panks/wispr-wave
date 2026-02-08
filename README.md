@@ -36,7 +36,19 @@ Some virtualized environments or older systems restrict direct hardware audio ac
 
 ---
 
-## 🛠️ Installation from Source
+## � Download
+
+Don't want to build from source? Download the latest ready-to-use app:
+
+👉 [**Download WisprWave.zip**](https://github.com/yourusername/WisprWave/releases/latest)
+
+1.  Download the zip file.
+2.  Unzip and drag `WisprWave.app` to your Applications folder.
+3.  Follow the launch instructions below.
+
+---
+
+## �🛠️ Installation from Source
 
 WisprWave is open-source. Build it directly from the codebase in minutes.
 
