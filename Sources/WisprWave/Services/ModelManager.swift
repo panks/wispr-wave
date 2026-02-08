@@ -6,6 +6,7 @@ import WhisperKit
 class ModelManager: ObservableObject {
     @Published var isDownloading = false
     @Published var downloadProgress: Double = 0.0
+    @Published var downloadStatus: String = "Initializing..."
     @Published var currentModelName: String? = nil
     @Published var isModelLoaded = false
     
@@ -112,6 +113,7 @@ class ModelManager: ObservableObject {
         
         self.isDownloading = true
         self.downloadProgress = 0.0
+        self.downloadStatus = "Preparing \(modelInfo.name)..."
         
         do {
             print("Downloading model: \(modelId) from \(modelInfo.url)")
@@ -187,12 +189,27 @@ class ModelManager: ObservableObject {
                                     if !buffer.isEmpty, let line = String(data: buffer, encoding: .utf8) {
                                         print("HF Output: \(line)") // Debug logging
                                         
-                                        // Parse progress
-                                        // Look for pattern like "Downloading: 45%" or just "45%"
-                                        if let range = line.range(of: #"(\d+)%"#, options: .regularExpression) {
-                                            let percentStr = line[range].dropLast()
-                                            if let percent = Double(percentStr) {
-                                                await MainActor.run {
+                                        await MainActor.run {
+                                            // 1. Parse File Count: matches "3/15" or "[3/15]"
+                                            // Regex to capture "(\d+/\d+)"
+                                            if let range = line.range(of: #"(\d+/\d+)"#, options: .regularExpression) {
+                                                let countStr = String(line[range])
+                                                // Verify it looks like a fraction to avoid matching date-like strings if any
+                                                if countStr.contains("/") {
+                                                    self.downloadStatus = "Downloading \(modelInfo.name) (\(countStr))..."
+                                                }
+                                            } else if self.downloadStatus == "Initializing..." && self.downloadStatus.hasPrefix("Downloading") == false {
+                                                self.downloadStatus = "Downloading \(modelInfo.name)..."
+                                            }
+                                            
+                                            // 2. Parse Progress Percentage: 45%
+                                            if let range = line.range(of: #"(\d+)%"#, options: .regularExpression) {
+                                                let percentStr = line[range].dropLast()
+                                                if let percent = Double(percentStr) {
+                                                    // Smooth out progress: prevent jumping to 100% too early for small files
+                                                    // We could average it or just trust it. The user said it's janky.
+                                                    // Let's just trust it for now but combined with file count it might feel better.
+                                                    // Alternatively, if we know file count, we can do (fileIndex + percent) / totalFiles
                                                     self.downloadProgress = percent / 100.0
                                                 }
                                             }

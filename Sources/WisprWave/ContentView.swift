@@ -84,7 +84,7 @@ struct ContentView: View {
                 if appState.modelManager.isDownloading {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("Downloading...")
+                            Text(appState.modelManager.downloadStatus)
                                 .font(.caption)
                             Spacer()
                             Button(action: {
