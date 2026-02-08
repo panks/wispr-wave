@@ -332,20 +332,6 @@ class ModelManager: ObservableObject {
                         }
                     }
                     
-                    // Final transcription of any remaining audio
-                    // Only run if we haven't transcribed recently (e.g., > 200ms ago)
-                    // This prevents a double-transcription lag when stopping immediately after a loop cycle.
-                    let timeSinceLast = Date().timeIntervalSince(lastTranscribeTime)
-                    if timeSinceLast > 0.1, !accumulatedSamples.isEmpty, let whisperKit = self.whisperKit {
-                        print("ModelManager: Model Finishing stream. Final transcription of \(accumulatedSamples.count) samples (Time since last: \(String(format: "%.2f", timeSinceLast))s)")
-                        let result = try await whisperKit.transcribe(audioArray: accumulatedSamples)
-                        let text = result.map { $0.text }.joined(separator: " ")
-                        print("ModelManager: Final streaming result: '\(text)'")
-                        continuation.yield(text)
-                    } else {
-                        print("ModelManager: Skipping final transcription (Time since last: \(String(format: "%.2f", timeSinceLast))s - deemed up to date)")
-                    }
-                    
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
