@@ -19,5 +19,4 @@ DerivedData/
 # Packaging artifacts
 WisprWave.app/
 WisprWave.zip
-package_app.sh
 download_model.sh
