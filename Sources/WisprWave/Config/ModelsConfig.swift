@@ -11,22 +11,27 @@ struct ModelsConfig {
     static let supportedModels: [ModelInfo] = [
         ModelInfo(
             id: "openai_whisper-large-v3-v20240930_547MB",
-            name: "Whisper Large V3 547",
+            name: "Whisper Large V3 547 New",
             url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930_547MB"
         ),
         ModelInfo(
             id: "openai_whisper-large-v3-v20240930_626MB",
-            name: "Whisper Large V3 626",
+            name: "Whisper Large V3 626 New",
             url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930_626MB"
         ),
         ModelInfo(
+            id: "openai_whisper-large-v3-v20240930",
+            name: "Whisper Large V3 New",
+            url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930"
+        ),
+        ModelInfo(
             id: "openai_whisper-large-v3-v20240930_turbo",
-            name: "Whisper Large V3 T",
+            name: "Whisper Large V3 T New",
             url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930_turbo"
         ),
         ModelInfo(
             id: "openai_whisper-large-v3-v20240930_turbo_632MB",
-            name: "Whisper Large V3 632T",
+            name: "Whisper Large V3 632T New",
             url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930_turbo_632MB"
         ),
         ModelInfo(
