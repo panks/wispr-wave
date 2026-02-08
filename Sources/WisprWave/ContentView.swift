@@ -28,7 +28,7 @@ struct ContentView: View {
                 } else if let modelId = appState.modelManager.currentModelName {
                     // Find the display name for the model
                     let displayName = appState.modelManager.supportedModels.first(where: { $0.id == modelId })?.name ?? modelId
-                    let status = appState.modelManager.isModelLoaded ? "Using model \(displayName)" : "Loading \(displayName)..."
+                    let status = appState.modelManager.isModelLoaded ? "Using: \(displayName)" : "Loading \(displayName)..."
                     Text(status)
                         .foregroundStyle(.secondary)
                 } else {
