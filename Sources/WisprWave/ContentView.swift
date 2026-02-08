@@ -104,10 +104,18 @@ struct ContentView: View {
                 HotKeyRecorder(appState: appState)
                     .padding(.bottom, 4)
                 
-                Toggle("Legacy Mode (VM)", isOn: $appState.isLegacyMode)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .help("Use file-based recording (slower but more compatible)")
+                HStack(spacing: 20) {
+                    Toggle("Legacy Mode (VMs)", isOn: $appState.isLegacyMode)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help("Use file-based recording (slower but more compatible)")
+                    
+                    Toggle("Boost🚀", isOn: $appState.isBoostMode)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .disabled(appState.isLegacyMode)
+                        .help("Enable background streaming for faster results")
+                }
                 
                 HStack {
                     Button("Quit") {

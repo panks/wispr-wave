@@ -298,8 +298,60 @@ class ModelManager: ObservableObject {
     func transcribe(audioSamples: [Float]) async throws -> String? {
         guard let whisperKit = whisperKit else { return nil }
         
+        // Ensure we're on the main actor for checking the loading state if needed,
+        // but transcription should happen off-main.
+        // WhisperKit is actor-isolated or thread-safe usually.
+        
         let result = try await whisperKit.transcribe(audioArray: audioSamples)
         return result.map { $0.text }.joined(separator: " ")
+    }
+    
+    // Streaming support
+    func transcribe(stream: AsyncThrowingStream<[Float], Error>) -> AsyncThrowingStream<String, Error> {
+        return AsyncThrowingStream { continuation in
+            var accumulatedSamples: [Float] = []
+            var lastTranscribeTime = Date()
+            
+            Task {
+                do {
+                    for try await chunk in stream {
+                        accumulatedSamples.append(contentsOf: chunk)
+                        
+                        guard let whisperKit = self.whisperKit else { continue }
+                        
+                        // Throttle: transcribe max every 0.5 seconds
+                        if Date().timeIntervalSince(lastTranscribeTime) > 0.5 {
+                             print("ModelManager: Transcribing intermediate buffer: \(accumulatedSamples.count) samples")
+                             // Transcribe the full buffer so far
+                             let result = try await whisperKit.transcribe(audioArray: accumulatedSamples)
+                             let text = result.map { $0.text }.joined(separator: " ")
+                             print("ModelManager: Intermediate result: '\(text)'")
+                             
+                             continuation.yield(text)
+                             lastTranscribeTime = Date()
+                        }
+                    }
+                    
+                    // Final transcription of any remaining audio
+                    // Only run if we haven't transcribed recently (e.g., > 200ms ago)
+                    // This prevents a double-transcription lag when stopping immediately after a loop cycle.
+                    let timeSinceLast = Date().timeIntervalSince(lastTranscribeTime)
+                    if timeSinceLast > 0.1, !accumulatedSamples.isEmpty, let whisperKit = self.whisperKit {
+                        print("ModelManager: Model Finishing stream. Final transcription of \(accumulatedSamples.count) samples (Time since last: \(String(format: "%.2f", timeSinceLast))s)")
+                        let result = try await whisperKit.transcribe(audioArray: accumulatedSamples)
+                        let text = result.map { $0.text }.joined(separator: " ")
+                        print("ModelManager: Final streaming result: '\(text)'")
+                        continuation.yield(text)
+                    } else {
+                        print("ModelManager: Skipping final transcription (Time since last: \(String(format: "%.2f", timeSinceLast))s - deemed up to date)")
+                    }
+                    
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
     
     // Track current process for cancellation

@@ -14,6 +14,10 @@ class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleB
     // Store audio samples in memory
     private var audioSamples: [Float] = []
     
+    // Stream support
+    private var streamContinuation: AsyncThrowingStream<[Float], Error>.Continuation?
+    public var audioStream: AsyncThrowingStream<[Float], Error>?
+    
     // State
     private var usingLegacyMode = false
     @Published var isRecording = false
@@ -40,6 +44,11 @@ class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleB
             try startLegacyRecording()
         } else {
             print("Starting AVCaptureSession AudioRecorder (Memory-based)...")
+            // Initialize stream
+            let stream = AsyncThrowingStream<[Float], Error> { continuation in
+                self.streamContinuation = continuation
+            }
+            self.audioStream = stream
             try startMemoryRecording()
         }
         
@@ -157,6 +166,10 @@ class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleB
         captureSession?.stopRunning()
         captureSession = nil
         audioOutput = nil
+        
+        streamContinuation?.finish()
+        streamContinuation = nil
+        audioStream = nil
     }
     
     // MARK: - AVCapture Delegate
@@ -197,6 +210,8 @@ class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleB
         
         Task { @MainActor in
             self.audioSamples.append(contentsOf: resampled)
+            // print("Yielding \(resampled.count) samples to stream") 
+            self.streamContinuation?.yield(resampled)
         }
     }
     
