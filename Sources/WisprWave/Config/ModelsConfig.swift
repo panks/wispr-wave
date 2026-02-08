@@ -40,6 +40,21 @@ struct ModelsConfig {
             url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/distil-whisper_distil-large-v3_594MB"
         ),
         ModelInfo(
+            id: "distil-whisper_distil-large-v3",
+            name: "Distil Whisper Large V3",
+            url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/distil-whisper_distil-large-v3"
+        ),
+        ModelInfo(
+            id: "distil-whisper_distil-large-v3_turbo",
+            name: "Distil Whisper Large V3 T",
+            url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/distil-whisper_distil-large-v3_turbo"
+        ),
+        ModelInfo(
+            id: "distil-whisper_distil-large-v3_turbo_600MB",
+            name: "Distil Whisper Large V3 600T",
+            url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/distil-whisper_distil-large-v3_turbo_600MB"
+        ),
+        ModelInfo(
             id: "openai_whisper-large-v3",
             name: "Whisper Large V3",
             url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3"
@@ -55,16 +70,6 @@ struct ModelsConfig {
             url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-medium"
         ),
         ModelInfo(
-            id: "distil-whisper_distil-large-v3",
-            name: "Distil Whisper Large V3",
-            url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/distil-whisper_distil-large-v3"
-        ),
-        ModelInfo(
-            id: "openai_whisper-base",
-            name: "Whisper Base",
-            url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-base"
-        ),
-        ModelInfo(
             id: "openai_whisper-small.en",
             name: "Whisper Small En",
             url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-small.en"
@@ -78,6 +83,21 @@ struct ModelsConfig {
             id: "openai_whisper-small",
             name: "Whisper Small",
             url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-small"
+        ),
+        ModelInfo(
+            id: "openai_whisper-base.en",
+            name: "Whisper Base En",
+            url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-base.en"
+        ),
+        ModelInfo(
+            id: "openai_whisper-base",
+            name: "Whisper Base",
+            url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-base"
+        ),
+        ModelInfo(
+            id: "openai_whisper-tiny.en",
+            name: "Whisper Tiny En",
+            url: "https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-tiny.en"
         ),
         ModelInfo(
             id: "openai_whisper-tiny",
