@@ -55,6 +55,10 @@ struct HudView: View {
                 RecordingWaveView()
                     .frame(height: 20)
                     .padding(.horizontal, 4)
+            } else if appState.isProcessing {
+                ProcessingSpinnerView()
+                    .frame(width: 20, height: 20)
+                    .padding(.horizontal, 4)
             }
             
             Text(appState.status)
@@ -88,5 +92,23 @@ struct RecordingWaveView: View {
         .onAppear {
             isAnimating = true
         }
+    }
+}
+
+struct ProcessingSpinnerView: View {
+    @State private var isSpinning = false
+    
+    var body: some View {
+        Circle()
+            .trim(from: 0.1, to: 0.9)
+            .stroke(Color.white.opacity(0.8), lineWidth: 2.5)
+            .rotationEffect(.degrees(isSpinning ? 360 : 0))
+            .animation(
+                .linear(duration: 0.8).repeatForever(autoreverses: false),
+                value: isSpinning
+            )
+            .onAppear {
+                isSpinning = true
+            }
     }
 }
