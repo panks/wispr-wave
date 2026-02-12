@@ -11,7 +11,6 @@
   <img src="docs/assets/in-action-ss.png" alt="Dictate Into Any App" height="400">
 </p>
 
----
 
 ## Key Features
 
@@ -21,7 +20,6 @@
 *   **⌨️ Universal Dictation:** Injects text directly into your active application (Notes, Slack, Obsidian, VS Code, etc.).
 *   **💻 VM Compatible:** Special legacy mode designed for virtual machines (VMware, Parallels, UTM).
 
----
 
 ## Performance Modes
 
@@ -44,7 +42,6 @@ Some virtualized environments restrict direct hardware audio access required for
 *   **Dependable:** Records to a temporary file first, then transcribes.
 *   **Ideal For:** Use this if you are running macOS inside a VM or experience audio driver issues.
 
----
 
 ## Download
 
@@ -58,7 +55,6 @@ Don't want to build from source? Download the latest ready-to-use app:
 
 Recommended Model: *Wisper Large V3 632T New*
 
----
 
 ## Installation from Source
 
@@ -95,12 +91,12 @@ WisprWave is open-source. Build it directly from the codebase in minutes.
 4.  **Permissions:**
     On first launch, grant **Accessibility** (for text injection) and **Microphone** permissions when prompted. The menu bar icon will appear, ready for action!
 
----
 
 ## Contributing
 
 Contributions are welcome! Feel free to open issues or submit pull requests to make WisprWave even better.
 
-## 📄 License
+
+## License
 
 MIT License. Free for everyone.
