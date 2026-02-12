@@ -13,7 +13,7 @@
 
 ---
 
-## 🚀 Key Features
+## Key Features
 
 *   **⚡️ Blazing Fast:** Powered by `WhisperKit` and optimized for Apple Silicon (CoreML). Transcription happens locally and instantly.
 *   **🔒 100% Private:** Your voice never leaves your device. Works completely offline—airplane mode approved.
@@ -23,7 +23,7 @@
 
 ---
 
-## 🎛️ Performance Modes
+## Performance Modes
 
 WisprWave offers three modes to fit your environment:
 
@@ -46,19 +46,21 @@ Some virtualized environments restrict direct hardware audio access required for
 
 ---
 
-## � Download
+## Download
 
 Don't want to build from source? Download the latest ready-to-use app:
 
-👉 [**Download WisprWave.zip**](https://github.com/panks/WisprWave/releases/latest)
+[**Download WisprWave.zip**](https://github.com/panks/WisprWave/releases/latest)
 
 1.  Download the zip file.
 2.  Unzip and drag `WisprWave.app` to your Applications folder.
 3.  Follow the launch instructions below.
 
+Recommended Model: *Wisper Large V3 632T New*
+
 ---
 
-## �🛠️ Installation from Source
+## Installation from Source
 
 WisprWave is open-source. Build it directly from the codebase in minutes.
 
@@ -95,7 +97,7 @@ WisprWave is open-source. Build it directly from the codebase in minutes.
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Feel free to open issues or submit pull requests to make WisprWave even better.
 
