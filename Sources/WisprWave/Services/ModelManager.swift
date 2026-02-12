@@ -75,7 +75,14 @@ class ModelManager: ObservableObject {
         do {
             print("Loading WhisperKit with model: \(name)")
             let localModelURL = modelStoragePath.appendingPathComponent(name)
-            let config = WhisperKitConfig(modelFolder: localModelURL.path)
+            let config = WhisperKitConfig(
+                modelFolder: localModelURL.path,
+                computeOptions: ModelComputeOptions(),
+                verbose: false,
+                logLevel: .none,
+                prewarm: true,
+                download: false
+            )
             let pipe = try await WhisperKit(config)
             
             self.whisperKit = pipe
@@ -298,11 +305,21 @@ class ModelManager: ObservableObject {
     func transcribe(audioSamples: [Float]) async throws -> String? {
         guard let whisperKit = whisperKit else { return nil }
         
-        // Ensure we're on the main actor for checking the loading state if needed,
-        // but transcription should happen off-main.
-        // WhisperKit is actor-isolated or thread-safe usually.
+        let options = DecodingOptions(
+            task: .transcribe,
+            temperature: 0,
+            temperatureFallbackCount: 0,
+            usePrefillPrompt: true,
+            usePrefillCache: true,
+            skipSpecialTokens: true,
+            withoutTimestamps: true,
+            suppressBlank: true
+        )
         
-        let result = try await whisperKit.transcribe(audioArray: audioSamples)
+        let result: [TranscriptionResult] = try await whisperKit.transcribe(
+            audioArray: audioSamples,
+            decodeOptions: options
+        )
         return result.map { $0.text }.joined(separator: " ")
     }
     
@@ -338,9 +355,15 @@ class ModelManager: ObservableObject {
                         
                         // Use clipTimestamps to skip already-confirmed audio
                         let options = DecodingOptions(
+                            task: .transcribe,
+                            temperature: 0,
+                            temperatureFallbackCount: 0,
+                            usePrefillPrompt: true,
+                            usePrefillCache: true,
                             skipSpecialTokens: true,
                             withoutTimestamps: true,
-                            clipTimestamps: [lastConfirmedSegmentEndSeconds]
+                            clipTimestamps: [lastConfirmedSegmentEndSeconds],
+                            suppressBlank: true
                         )
                         
                         print("ModelManager: Streaming transcribe from \(lastConfirmedSegmentEndSeconds)s (total: \(totalSeconds)s)")
@@ -391,9 +414,15 @@ class ModelManager: ObservableObject {
                     // This is fast because it's just a few seconds of audio.
                     if !accumulatedSamples.isEmpty, let whisperKit = self.whisperKit {
                         let options = DecodingOptions(
+                            task: .transcribe,
+                            temperature: 0,
+                            temperatureFallbackCount: 0,
+                            usePrefillPrompt: true,
+                            usePrefillCache: true,
                             skipSpecialTokens: true,
                             withoutTimestamps: true,
-                            clipTimestamps: [lastConfirmedSegmentEndSeconds]
+                            clipTimestamps: [lastConfirmedSegmentEndSeconds],
+                            suppressBlank: true
                         )
                         
                         let totalSeconds = Float(accumulatedSamples.count) / Float(WhisperKit.sampleRate)

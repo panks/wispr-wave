@@ -190,8 +190,6 @@ class AppState: ObservableObject {
         status = "Processing..."
         
         Task { @MainActor in
-            // Yield execution to allow the UI to render the "Finishing..." state
-            try? await Task.sleep(nanoseconds: 50 * 1_000_000) // 50ms buffer
             
             // Stop recording (closes the stream if active)
             let audioSamples = audioRecorder.stopRecording()
