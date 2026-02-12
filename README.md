@@ -25,20 +25,23 @@
 
 ## 🎛️ Performance Modes
 
-WisprWave adapts to your environment with two distinct modes:
+WisprWave offers three modes to fit your environment:
 
-### 🚀 Boost Mode (Default)
+### 🚀 Boost Mode
 **Maximum Speed.**
-For native macOS environments, Boost Mode employs intelligent background streaming to transcribe your speech in real-time as you talk.
-*   **Instant Results:** Text is ready almost the moment you stop speaking.
-*   **How it Works:** Processes audio in small chunks continuously.
-*   **⚠️ Note:** To achieve this speed, the engine relies on chunk processing. If you stop recording *immediately* (<0.5 seconds) after your last word, the final snippet might occasionally be missed. For critical accuracy, pause briefly before stopping.
+For native macOS environments, Boost Mode streams audio in the background and pre-transcribes as you speak using WhisperKit's `clipTimestamps` — each pass only decodes *new* audio past the last confirmed segment, so it never re-processes the same speech twice.
+*   **Instant Results:** When you stop speaking, only the final 1–2 seconds need processing. Text appears almost immediately.
+
+### 🎙️ Standard Mode
+**Simple & Reliable.**
+Records all audio first, then transcribes the full buffer in one pass after you stop recording.
+*   **Good For:** Short dictations where the slight delay after stopping is acceptable.
+*   **Optimized:** Uses tuned `DecodingOptions` (zero-temperature, prefill cache, no timestamps) for fast single-pass transcription.
 
 ### 🐢 Legacy Mode (VM Support)
 **Maximum Compatibility.**
-Some virtualized environments or older systems restrict direct hardware audio access required for streaming.
-*   **Dependable:** Records to a temporary file first, then transcribes the full buffer.
-*   **Robust:** Slower than Boost Mode, but ensures compatibility where other dictation apps fail.
+Some virtualized environments restrict direct hardware audio access required for streaming.
+*   **Dependable:** Records to a temporary file first, then transcribes.
 *   **Ideal For:** Use this if you are running macOS inside a VM or experience audio driver issues.
 
 ---
