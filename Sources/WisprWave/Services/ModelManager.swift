@@ -306,11 +306,18 @@ class ModelManager: ObservableObject {
         return result.map { $0.text }.joined(separator: " ")
     }
     
-    // Streaming support
+    // MARK: - Streaming Transcription (Boost Mode)
+    // Uses clipTimestamps to avoid re-decoding the entire buffer each time.
+    // Tracks confirmed segments so each intermediate transcription only processes new audio.
+    // On stop, a fast final transcription captures the last few words.
+    
     func transcribe(stream: AsyncThrowingStream<[Float], Error>) -> AsyncThrowingStream<String, Error> {
         return AsyncThrowingStream { continuation in
             var accumulatedSamples: [Float] = []
             var lastTranscribeTime = Date()
+            var confirmedSegments: [TranscriptionSegment] = []
+            var lastConfirmedSegmentEndSeconds: Float = 0
+            let requiredSegmentsForConfirmation = 2
             
             Task {
                 do {
@@ -319,16 +326,93 @@ class ModelManager: ObservableObject {
                         
                         guard let whisperKit = self.whisperKit else { continue }
                         
-                        // Throttle: transcribe max every 0.5 seconds
-                        if Date().timeIntervalSince(lastTranscribeTime) > 0.5 {
-                             print("ModelManager: Transcribing intermediate buffer: \(accumulatedSamples.count) samples")
-                             // Transcribe the full buffer so far
-                             let result = try await whisperKit.transcribe(audioArray: accumulatedSamples)
-                             let text = result.map { $0.text }.joined(separator: " ")
-                             print("ModelManager: Intermediate result: '\(text)'")
-                             
-                             continuation.yield(text)
-                             lastTranscribeTime = Date()
+                        // Throttle: transcribe at most every 1 second and only when we have
+                        // at least 1 second of new audio past the last confirmed point.
+                        let totalSeconds = Float(accumulatedSamples.count) / Float(WhisperKit.sampleRate)
+                        let newAudioSeconds = totalSeconds - lastConfirmedSegmentEndSeconds
+                        
+                        guard Date().timeIntervalSince(lastTranscribeTime) > 1.0,
+                              newAudioSeconds > 1.0 else {
+                            continue
+                        }
+                        
+                        // Use clipTimestamps to skip already-confirmed audio
+                        let options = DecodingOptions(
+                            skipSpecialTokens: true,
+                            withoutTimestamps: true,
+                            clipTimestamps: [lastConfirmedSegmentEndSeconds]
+                        )
+                        
+                        print("ModelManager: Streaming transcribe from \(lastConfirmedSegmentEndSeconds)s (total: \(totalSeconds)s)")
+                        
+                        let results: [TranscriptionResult] = try await whisperKit.transcribe(
+                            audioArray: accumulatedSamples,
+                            decodeOptions: options
+                        )
+                        
+                        let segments = results.flatMap { $0.segments }
+                        
+                        // Confirm older segments (following AudioStreamTranscriber pattern)
+                        if segments.count > requiredSegmentsForConfirmation {
+                            let numberOfSegmentsToConfirm = segments.count - requiredSegmentsForConfirmation
+                            let confirmedArray = Array(segments.prefix(numberOfSegmentsToConfirm))
+                            let unconfirmedArray = Array(segments.suffix(requiredSegmentsForConfirmation))
+                            
+                            if let lastConfirmed = confirmedArray.last,
+                               lastConfirmed.end > lastConfirmedSegmentEndSeconds {
+                                lastConfirmedSegmentEndSeconds = lastConfirmed.end
+                                confirmedSegments.append(contentsOf: confirmedArray)
+                                print("ModelManager: Confirmed \(confirmedArray.count) segments up to \(lastConfirmedSegmentEndSeconds)s")
+                            }
+                            
+                            // Build full text: confirmed + unconfirmed
+                            let confirmedText = confirmedSegments.map { $0.text }.joined()
+                            let unconfirmedText = unconfirmedArray.map { $0.text }.joined()
+                            let fullText = (confirmedText + unconfirmedText).trimmingCharacters(in: .whitespaces)
+                            
+                            if !fullText.isEmpty {
+                                continuation.yield(fullText)
+                            }
+                        } else if !segments.isEmpty {
+                            // Not enough segments to confirm yet, yield what we have
+                            let confirmedText = confirmedSegments.map { $0.text }.joined()
+                            let unconfirmedText = segments.map { $0.text }.joined()
+                            let fullText = (confirmedText + unconfirmedText).trimmingCharacters(in: .whitespaces)
+                            
+                            if !fullText.isEmpty {
+                                continuation.yield(fullText)
+                            }
+                        }
+                        
+                        lastTranscribeTime = Date()
+                    }
+                    
+                    // Final transcription: decode only from the last confirmed point.
+                    // This is fast because it's just a few seconds of audio.
+                    if !accumulatedSamples.isEmpty, let whisperKit = self.whisperKit {
+                        let options = DecodingOptions(
+                            skipSpecialTokens: true,
+                            withoutTimestamps: true,
+                            clipTimestamps: [lastConfirmedSegmentEndSeconds]
+                        )
+                        
+                        let totalSeconds = Float(accumulatedSamples.count) / Float(WhisperKit.sampleRate)
+                        print("ModelManager: Final transcription from \(lastConfirmedSegmentEndSeconds)s to \(totalSeconds)s")
+                        
+                        let results: [TranscriptionResult] = try await whisperKit.transcribe(
+                            audioArray: accumulatedSamples,
+                            decodeOptions: options
+                        )
+                        
+                        let finalSegments = results.flatMap { $0.segments }
+                        let confirmedText = confirmedSegments.map { $0.text }.joined()
+                        let finalText = (confirmedText + finalSegments.map { $0.text }.joined())
+                            .trimmingCharacters(in: .whitespaces)
+                        
+                        print("ModelManager: Final result: '\(finalText)'")
+                        
+                        if !finalText.isEmpty {
+                            continuation.yield(finalText)
                         }
                     }
                     
