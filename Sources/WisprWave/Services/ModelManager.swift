@@ -75,8 +75,14 @@ class ModelManager: ObservableObject {
         do {
             print("Loading WhisperKit with model: \(name)")
             let localModelURL = modelStoragePath.appendingPathComponent(name)
+            // Redirect tokenizer + any Hub fallback away from ~/Documents/huggingface
+            // (swift-transformers' HubApi default), into our App Support sandbox.
+            let hubBase = modelStoragePath.appendingPathComponent("hub")
+            try? FileManager.default.createDirectory(at: hubBase, withIntermediateDirectories: true)
             let config = WhisperKitConfig(
+                downloadBase: hubBase,
                 modelFolder: localModelURL.path,
+                tokenizerFolder: hubBase,
                 computeOptions: ModelComputeOptions(),
                 verbose: false,
                 logLevel: .none,
