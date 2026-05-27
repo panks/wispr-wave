@@ -78,8 +78,28 @@ cat <<EOF > "Entitlements.plist"
 </plist>
 EOF
 
-echo "�🔑 Applying ad-hoc signature with entitlements..."
-codesign --force --deep --entitlements "Entitlements.plist" --sign - "${APP_BUNDLE}"
+# Choose a signing identity. A stable (self-signed) identity keeps the app's
+# "designated requirement" constant across rebuilds, so macOS preserves the
+# Accessibility permission after every update. Ad-hoc signing does NOT — its identity
+# is the binary's content hash, which changes every build, forcing a re-grant.
+#
+# Order: explicit WISPRWAVE_SIGN_ID env var > "WisprWave Local Signing" cert > ad-hoc.
+# Create the stable cert once with ./create_signing_cert.sh
+SIGN_NAME="WisprWave Local Signing"
+if [ -n "${WISPRWAVE_SIGN_ID:-}" ]; then
+    SIGN_ID="${WISPRWAVE_SIGN_ID}"
+    echo "🔑 Signing with identity from WISPRWAVE_SIGN_ID: ${SIGN_ID}"
+elif security find-identity -p codesigning | grep -q "${SIGN_NAME}"; then
+    SIGN_ID="${SIGN_NAME}"
+    echo "🔑 Signing with stable identity '${SIGN_NAME}' (Accessibility grant will persist across updates)."
+else
+    SIGN_ID="-"
+    echo "⚠️  No stable signing identity found — falling back to ad-hoc signing."
+    echo "    The Accessibility permission will need re-granting after each update."
+    echo "    Run ./create_signing_cert.sh once to fix this permanently."
+fi
+
+codesign --force --deep --entitlements "Entitlements.plist" --sign "${SIGN_ID}" "${APP_BUNDLE}"
 rm "Entitlements.plist"
 
 echo "✅ App Bundle created at ${APP_BUNDLE}"

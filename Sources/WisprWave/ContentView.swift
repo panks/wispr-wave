@@ -46,16 +46,29 @@ struct ContentView: View {
                         .font(.caption)
                         .fontWeight(.bold)
                         .foregroundColor(.red)
-                    
+
                     Text("Grant permission to allow text insertion.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
-                    
-                    Button("Grant Permission") {
+
+                    Button("Open Accessibility Settings") {
                         appState.permissionManager.requestAccessibilityPermission()
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+
+                    // If the app was updated, the old grant is bound to the previous
+                    // build's signature and won't apply. Re-adding + relaunching fixes it.
+                    Text("Already enabled it? After updating the app you may need to remove WisprWave from the list, add it again, then relaunch.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Button("Relaunch WisprWave") {
+                        appState.permissionManager.relaunchApp()
+                    }
+                    .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
                 .padding(8)
