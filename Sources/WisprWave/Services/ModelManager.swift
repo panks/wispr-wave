@@ -112,180 +112,101 @@ class ModelManager: ObservableObject {
     }
     
     // Download a specific model (User clicked "Download")
+    //
+    // Uses WhisperKit's built-in Swift downloader (backed by swift-transformers' HubApi),
+    // which fetches model files straight from HuggingFace in-process. This avoids depending
+    // on an external `hf`/`huggingface-cli` binary — which is rarely installed and, even when
+    // it is, isn't on the minimal PATH a Finder-launched .app inherits.
     func downloadModel(modelId: String) async {
         guard !isDownloading else { return }
-        
+
         // Find model info
         guard let modelInfo = supportedModels.first(where: { $0.id == modelId }) else { return }
-        
+
+        // Parse HuggingFace URL
+        // Format: https://huggingface.co/{repo}/tree/{branch}/{path}
+        // Example: https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3
+        guard let url = URL(string: modelInfo.url) else {
+            print("Error downloading: invalid URL \(modelInfo.url)")
+            self.downloadStatus = "Invalid model URL"
+            return
+        }
+
+        let pathComponents = url.pathComponents
+        // pathComponents: ["", "argmaxinc", "whisperkit-coreml", "tree", "main", "openai_whisper-large-v3"]
+        guard pathComponents.count >= 6, pathComponents[3] == "tree" else {
+            print("Error downloading: invalid HuggingFace tree URL \(modelInfo.url)")
+            self.downloadStatus = "Invalid model URL"
+            return
+        }
+
+        let repo = "\(pathComponents[1])/\(pathComponents[2])"  // "argmaxinc/whisperkit-coreml"
+        let variant = pathComponents[5...].joined(separator: "/") // "openai_whisper-large-v3"
+
         self.isDownloading = true
         self.downloadProgress = 0.0
         self.downloadStatus = "Preparing \(modelInfo.name)..."
-        
-        do {
-            print("Downloading model: \(modelId) from \(modelInfo.url)")
-            
-            // Parse HuggingFace URL
-            // Format: https://huggingface.co/{repo}/tree/{branch}/{path}
-            // Example: https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3
-            
-            guard let url = URL(string: modelInfo.url) else {
-                throw NSError(domain: "ModelManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
-            }
-            
-            let pathComponents = url.pathComponents
-            // pathComponents: ["", "argmaxinc", "whisperkit-coreml", "tree", "main", "openai_whisper-large-v3"]
-            
-            guard pathComponents.count >= 6,
-                  pathComponents[3] == "tree" else {
-                throw NSError(domain: "ModelManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid HuggingFace tree URL format"])
-            }
-            
-            let repo = "\(pathComponents[1])/\(pathComponents[2])"  // "argmaxinc/whisperkit-coreml"
-            let branch = pathComponents[4]  // "main"
-            let modelPath = pathComponents[5...].joined(separator: "/")  // "openai_whisper-large-v3"
-            
-            print("Repo: \(repo), Branch: \(branch), Path: \(modelPath)")
-            
-            // Use huggingface-cli to download
-            let destinationURL = self.modelStoragePath.appendingPathComponent(modelInfo.id)
-            
-            // Use a fresh temp directory for each download to avoid stale locks
-            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            
-            // Run download in background thread to avoid blocking UI
-            let downloadTask = Task.detached {
-                // Run huggingface-cli download
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                process.arguments = [
-                    "hf",
-                    "download",
-                    repo,
-                    "--include", "\(modelPath)/*",
-                    "--local-dir", tempDir.path
-                ]
-                
-                // Store process for cancellation
-                await self.setDownloadProcess(process)
-                
-                let pipe = Pipe()
-                process.standardOutput = pipe
-                process.standardError = pipe
-                
-                print("Starting download process for \(modelInfo.name)...")
-                try process.run()
-                print("Process started, PID: \(process.processIdentifier)")
-                
-                // Update progress in parallel while download runs
-                await withTaskGroup(of: Void.self) { group in
-                    // Task 1: Monitor and update progress by reading output
-                    group.addTask {
-                        print("Output monitor started")
-                        let handle = pipe.fileHandleForReading
-                        
-                        // Read byte by byte to handle \r (carriage return) updates
-                        // This fixes "stuck" progress when CLI updates the same line
-                        var buffer = Data()
-                        
-                        do {
-                            for try await byte in handle.bytes {
-                                // Check for newline or carriage return
-                                if byte == 10 || byte == 13 { // \n or \r
-                                    if !buffer.isEmpty, let line = String(data: buffer, encoding: .utf8) {
-                                        print("HF Output: \(line)") // Debug logging
-                                        
-                                        await MainActor.run {
-                                            // 1. Parse File Count: matches "3/15" or "[3/15]"
-                                            // Regex to capture "(\d+/\d+)"
-                                            if let range = line.range(of: #"(\d+/\d+)"#, options: .regularExpression) {
-                                                let countStr = String(line[range])
-                                                // Verify it looks like a fraction to avoid matching date-like strings if any
-                                                if countStr.contains("/") {
-                                                    self.downloadStatus = "Downloading \(modelInfo.name) (\(countStr))..."
-                                                }
-                                            } else if self.downloadStatus == "Initializing..." && self.downloadStatus.hasPrefix("Downloading") == false {
-                                                self.downloadStatus = "Downloading \(modelInfo.name)..."
-                                            }
-                                            
-                                            // 2. Parse Progress Percentage: 45%
-                                            if let range = line.range(of: #"(\d+)%"#, options: .regularExpression) {
-                                                let percentStr = line[range].dropLast()
-                                                if let percent = Double(percentStr) {
-                                                    // Smooth out progress: prevent jumping to 100% too early for small files
-                                                    // We could average it or just trust it. The user said it's janky.
-                                                    // Let's just trust it for now but combined with file count it might feel better.
-                                                    // Alternatively, if we know file count, we can do (fileIndex + percent) / totalFiles
-                                                    self.downloadProgress = percent / 100.0
-                                                }
-                                            }
-                                        }
-                                    }
-                                    buffer.removeAll()
-                                } else {
-                                    buffer.append(byte)
-                                }
-                            }
-                        } catch {
-                            print("Error reading output: \(error)")
+
+        print("Downloading model: \(modelId) (variant: \(variant)) from \(repo)")
+
+        let destinationURL = self.modelStoragePath.appendingPathComponent(modelInfo.id)
+        // Fresh temp base per download; WhisperKit writes to <base>/models/<repo>/<variant>.
+        let tempBase = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+
+        // Run as a cancellable task so cancelDownload() can stop it mid-flight.
+        let task = Task { () -> Bool in
+            do {
+                let modelURL = try await WhisperKit.download(
+                    variant: variant,
+                    downloadBase: tempBase,
+                    from: repo,
+                    progressCallback: { [weak self] progress in
+                        // progressCallback may fire off the main actor; hop back to update UI.
+                        Task { @MainActor in
+                            guard let self else { return }
+                            self.downloadProgress = progress.fractionCompleted
+                            self.downloadStatus = "Downloading \(modelInfo.name) (\(Int(progress.fractionCompleted * 100))%)..."
                         }
-                        print("Output monitor finished")
                     }
-                    
-                    // Task 2: Wait for process completion
-                    group.addTask {
-                        process.waitUntilExit()
-                        print("Process completed with status: \(process.terminationStatus)")
-                        // Close pipe to terminate the line reader
-                        try? pipe.fileHandleForReading.close()
-                    }
-                    
-                    // Wait for both tasks
-                    await group.waitForAll()
-                }
-                
-                // clear process
-                await self.setDownloadProcess(nil)
-                
-                guard process.terminationStatus == 0 else {
-                    // We can't easily get the full error output here since we consumed it above,
-                    // but we printed it to console.
-                    throw NSError(domain: "ModelManager", code: 3, userInfo: [NSLocalizedDescriptionKey: "Download failed. Check logs for details."])
-                }
-                
-                print("Moving downloaded files...")
-                
-                // Move downloaded model to destination
-                let downloadedModelPath = tempDir.appendingPathComponent(modelPath)
-                
-                // Remove destination if exists
+                )
+
+                try Task.checkCancellation()
+
+                // Move the downloaded folder into our Models/<id> layout.
                 if FileManager.default.fileExists(atPath: destinationURL.path) {
                     try FileManager.default.removeItem(at: destinationURL)
                 }
-                
-                // Move
-                try FileManager.default.moveItem(at: downloadedModelPath, to: destinationURL)
-                
-                // Clean up temp directory for this model
-                try? FileManager.default.removeItem(at: tempDir)
-                
+                try FileManager.default.moveItem(at: modelURL, to: destinationURL)
+                try? FileManager.default.removeItem(at: tempBase)
+
                 print("Download and move complete!")
+                return true
+            } catch is CancellationError {
+                print("Download cancelled")
+                try? FileManager.default.removeItem(at: tempBase)
+                return false
+            } catch {
+                print("Error downloading: \(error)")
+                try? FileManager.default.removeItem(at: tempBase)
+                await MainActor.run {
+                    self.downloadStatus = "Download failed: \(error.localizedDescription)"
+                }
+                return false
             }
-            
-            try await downloadTask.value
-            
-            // Update UI on main thread
+        }
+
+        self.downloadTask = task
+        let success = await task.value
+        self.downloadTask = nil
+
+        if success {
             print("Updating UI after download completion")
             self.scanModels() // Refresh list
-            self.isDownloading = false
             self.downloadProgress = 1.0
-            
-        } catch {
-            print("Error downloading: \(error)")
-            self.isDownloading = false
+        } else {
             self.downloadProgress = 0.0
         }
+        self.isDownloading = false
     }
     
     // Unload
@@ -453,22 +374,15 @@ class ModelManager: ObservableObject {
         }
     }
     
-    // Track current process for cancellation
-    private var currentDownloadProcess: Process?
-    
-    // Thread-safe process setter
-    private func setDownloadProcess(_ process: Process?) {
-        self.currentDownloadProcess = process
-    }
-    
+    // Track the in-flight download for cancellation
+    private var downloadTask: Task<Bool, Never>?
+
     // Cancel any active download
     func cancelDownload() {
-        if let process = currentDownloadProcess {
-            print("Cancelling download process (PID: \(process.processIdentifier))")
-            process.terminate()
-            currentDownloadProcess = nil
-        }
+        downloadTask?.cancel()
+        downloadTask = nil
         isDownloading = false
         downloadProgress = 0.0
+        downloadStatus = "Cancelled"
     }
 }

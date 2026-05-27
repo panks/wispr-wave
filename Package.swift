@@ -22,6 +22,13 @@ let package = Package(
             ],
             resources: [
                 .process("Resources")
+            ],
+            // The app's concurrency was written against Swift 5 semantics. Newer Swift
+            // compilers (6.2+) tighten region-based isolation ("sending") checks and turn
+            // previously-accepted patterns into hard errors. Pin the language mode so the
+            // app builds consistently across toolchains.
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
             ]
         )
     ]
