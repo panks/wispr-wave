@@ -254,7 +254,13 @@ class ModelManager: ObservableObject {
             var lastTranscribeTime = Date()
             var confirmedSegments: [TranscriptionSegment] = []
             var lastConfirmedSegmentEndSeconds: Float = 0
-            let requiredSegmentsForConfirmation = 2
+            // Time-based confirmation: any segment whose end lies more than this many
+            // seconds before the current audio end is considered settled and won't be
+            // re-decoded. We pair this with `withoutTimestamps: false` below so the
+            // model emits multiple 2-10s segments per 30s window (vs. one giant 30s
+            // atom under withoutTimestamps:true). That's what lets Boost actually help
+            // for short clips — confirmation can fire well before 30s of speech.
+            let confirmationLagSeconds: Float = 8.0
             
             Task {
                 do {
@@ -280,7 +286,11 @@ class ModelManager: ObservableObject {
                             temperatureFallbackCount: 0,
                             usePrefillPrompt: true,
                             skipSpecialTokens: true,
-                            withoutTimestamps: true,
+                            // Timestamps ON so the segmenter can split each 30s window
+                            // into finer 2-10s segments — required for the time-based
+                            // confirmation rule above to confirm anything before 30s
+                            // of speech has elapsed.
+                            withoutTimestamps: false,
                             clipTimestamps: [lastConfirmedSegmentEndSeconds],
                             suppressBlank: true
                         )
@@ -293,39 +303,29 @@ class ModelManager: ObservableObject {
                         )
                         
                         let segments = results.flatMap { $0.segments }
-                        
-                        // Confirm older segments (following AudioStreamTranscriber pattern)
-                        if segments.count > requiredSegmentsForConfirmation {
-                            let numberOfSegmentsToConfirm = segments.count - requiredSegmentsForConfirmation
-                            let confirmedArray = Array(segments.prefix(numberOfSegmentsToConfirm))
-                            let unconfirmedArray = Array(segments.suffix(requiredSegmentsForConfirmation))
-                            
-                            if let lastConfirmed = confirmedArray.last,
-                               lastConfirmed.end > lastConfirmedSegmentEndSeconds {
-                                lastConfirmedSegmentEndSeconds = lastConfirmed.end
-                                confirmedSegments.append(contentsOf: confirmedArray)
-                                print("ModelManager: Confirmed \(confirmedArray.count) segments up to \(lastConfirmedSegmentEndSeconds)s")
-                            }
-                            
-                            // Build full text: confirmed + unconfirmed
-                            let confirmedText = confirmedSegments.map { $0.text }.joined()
-                            let unconfirmedText = unconfirmedArray.map { $0.text }.joined()
-                            let fullText = (confirmedText + unconfirmedText).trimmingCharacters(in: .whitespaces)
-                            
-                            if !fullText.isEmpty {
-                                continuation.yield(fullText)
-                            }
-                        } else if !segments.isEmpty {
-                            // Not enough segments to confirm yet, yield what we have
-                            let confirmedText = confirmedSegments.map { $0.text }.joined()
-                            let unconfirmedText = segments.map { $0.text }.joined()
-                            let fullText = (confirmedText + unconfirmedText).trimmingCharacters(in: .whitespaces)
-                            
-                            if !fullText.isEmpty {
-                                continuation.yield(fullText)
-                            }
+
+                        // Time-based confirmation: anything ending more than
+                        // `confirmationLagSeconds` before the current audio end is
+                        // considered stable. Works regardless of how many segments
+                        // the model emits.
+                        let confirmableEnd = totalSeconds - confirmationLagSeconds
+                        let newlyConfirmed = segments.filter { $0.end <= confirmableEnd }
+                        let stillUnconfirmed = segments.filter { $0.end > confirmableEnd }
+
+                        if let newEnd = newlyConfirmed.last?.end, newEnd > lastConfirmedSegmentEndSeconds {
+                            confirmedSegments.append(contentsOf: newlyConfirmed)
+                            lastConfirmedSegmentEndSeconds = newEnd
+                            print("ModelManager: Confirmed \(newlyConfirmed.count) segments up to \(lastConfirmedSegmentEndSeconds)s")
                         }
-                        
+
+                        let confirmedText = confirmedSegments.map { $0.text }.joined()
+                        let unconfirmedText = stillUnconfirmed.map { $0.text }.joined()
+                        let fullText = (confirmedText + unconfirmedText).trimmingCharacters(in: .whitespaces)
+
+                        if !fullText.isEmpty {
+                            continuation.yield(fullText)
+                        }
+
                         lastTranscribeTime = Date()
                     }
                     
@@ -338,7 +338,11 @@ class ModelManager: ObservableObject {
                             temperatureFallbackCount: 0,
                             usePrefillPrompt: true,
                             skipSpecialTokens: true,
-                            withoutTimestamps: true,
+                            // Timestamps ON so the segmenter can split each 30s window
+                            // into finer 2-10s segments — required for the time-based
+                            // confirmation rule above to confirm anything before 30s
+                            // of speech has elapsed.
+                            withoutTimestamps: false,
                             clipTimestamps: [lastConfirmedSegmentEndSeconds],
                             suppressBlank: true
                         )

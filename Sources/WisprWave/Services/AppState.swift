@@ -212,8 +212,9 @@ class AppState: ObservableObject {
         
         Task { @MainActor in
             
-            // Stop recording (closes the stream if active)
-            let audioSamples = audioRecorder.stopRecording()
+            // Stop recording (closes the stream if active). Awaits a brief drain so
+            // late capture-session sample buffers land in the buffer before we read it.
+            let audioSamples = await audioRecorder.stopRecording()
             
             if !isLegacyMode {
                 // Check if we were streaming

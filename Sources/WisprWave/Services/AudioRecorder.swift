@@ -89,7 +89,7 @@ class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleB
         isRecording = true
     }
     
-    func stopRecording() -> [Float] {
+    func stopRecording() async -> [Float] {
         // Silence VAD before tearing down the audio pipeline so any straggling sample
         // callback can't fire onAutoStop after a user-initiated stop.
         vadEnabled = false
@@ -98,7 +98,7 @@ class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleB
         if usingLegacyMode {
             stopLegacyRecording()
         } else {
-            stopMemoryRecording()
+            await stopMemoryRecording()
         }
 
         isRecording = false
@@ -201,11 +201,20 @@ class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleB
         }
     }
     
-    private func stopMemoryRecording() {
+    private func stopMemoryRecording() async {
         captureSession?.stopRunning()
         captureSession = nil
         audioOutput = nil
-        
+
+        // AVCaptureSession has internal buffering — after stopRunning, late sample
+        // buffers can still arrive on the audio dispatch queue and dispatch their
+        // MainActor follow-ups (which both append to audioSamples AND yield to the
+        // stream). Yielding here gives those tasks a chance to run before we close
+        // the stream and before the caller reads audioSamples. Fixes the
+        // "missing trailing 1-2 words" symptom in both Boost (stream stays open) and
+        // Standard (audioSamples completes) modes.
+        try? await Task.sleep(nanoseconds: 300 * 1_000_000)
+
         streamContinuation?.finish()
         streamContinuation = nil
         audioStream = nil
