@@ -1,31 +1,56 @@
 #!/bin/bash
 #
-# Creates a stable, self-signed code-signing certificate in your login keychain.
+# Sets up the WisprWave code-signing identity in your login keychain.
 #
-# Why: WisprWave is distributed without an Apple Developer ID. If we sign ad-hoc
-# (`codesign -s -`), the app's identity is its content hash (cdhash), which changes
-# on every rebuild. macOS ties the Accessibility (TCC) grant to that identity, so the
-# permission stops working after each update and must be re-granted.
+# Modes:
+#   ./create_signing_cert.sh                  Generate a new self-signed identity.
+#   ./create_signing_cert.sh <path-to-.p12>   Restore from a previously-exported .p12
+#                                             (use export_signing_cert.sh to make one).
 #
-# A self-signed certificate gives the app a *stable* "designated requirement" (tied to
-# the certificate, not the binary contents). Reusing the same cert across rebuilds lets
-# the Accessibility grant persist. This is a LOCAL cert only — it does not bypass
-# Gatekeeper (you'll still "Open Anyway" on first launch) and is not for distribution.
+# Why this matters: WisprWave ships without an Apple Developer ID. Ad-hoc signing
+# (`codesign -s -`) gives the app an identity equal to its content hash (cdhash), which
+# changes on every rebuild — and macOS ties the Accessibility (TCC) grant to that
+# identity, so the permission breaks after each update.
 #
-# Run this once. package_app.sh will automatically pick the identity up.
-# To undo: delete the "WisprWave Local Signing" cert in Keychain Access (login keychain).
+# A stable code-signing cert gives the app a constant "designated requirement" (tied to
+# the cert, not the binary). Reusing the same cert across rebuilds — and across machines
+# via .p12 export/import — lets the Accessibility grant persist for you and any users
+# who installed an earlier signed build.
+#
+# Run this once on each machine you build from. package_app.sh picks the identity up
+# automatically. To undo: delete the "WisprWave Local Signing" cert in Keychain Access.
 
 set -e
 
 CERT_NAME="WisprWave Local Signing"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+P12_INPUT="${1:-}"
 
-if security find-identity -v -p codesigning | grep -q "$CERT_NAME"; then
-    echo "✅ Code-signing identity '$CERT_NAME' already exists. Nothing to do."
+# `-v` only lists trusted identities; a self-signed cert is not trusted by policy, so
+# the unfiltered listing is what we need to detect existence.
+if security find-identity -p codesigning "$KEYCHAIN" | grep -q "$CERT_NAME"; then
+    echo "✅ Identity '$CERT_NAME' already exists in your login keychain. Nothing to do."
+    echo "   To replace it, delete it first in Keychain Access (login keychain)."
     exit 0
 fi
 
-# Prefer Homebrew OpenSSL (supports the config below reliably); fall back to system.
+# Mode 1: restore from an existing .p12 (preserves the original Designated Requirement).
+if [ -n "$P12_INPUT" ]; then
+    if [ ! -r "$P12_INPUT" ]; then
+        echo "❌ Cannot read '$P12_INPUT'."
+        exit 1
+    fi
+    echo "📥 Restoring signing identity from $P12_INPUT ..."
+    read -r -s -p "Passphrase for $P12_INPUT: " PASS; echo
+    # -A allows all apps (incl. codesign) to use the key without an extra auth prompt.
+    security import "$P12_INPUT" -k "$KEYCHAIN" -P "$PASS" -A
+    echo ""
+    echo "✅ Imported identity '$CERT_NAME' from $P12_INPUT."
+    echo "   You can now run ./package_app.sh — it will sign with this identity automatically."
+    exit 0
+fi
+
+# Mode 2: generate a fresh self-signed identity.
 OPENSSL="$(command -v openssl)"
 
 echo "🔐 Generating self-signed code-signing certificate '$CERT_NAME'..."
@@ -61,10 +86,9 @@ fi
 "$OPENSSL" pkcs12 -export $LEGACY_FLAG -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
     -out "$TMP/cert.p12" -passout "pass:$P12_PASS" -name "$CERT_NAME" >/dev/null 2>&1
 
-# Import into the login keychain. -A allows all apps (incl. codesign) to use the key
-# without an additional authorization prompt.
 security import "$TMP/cert.p12" -k "$KEYCHAIN" -P "$P12_PASS" -A
 
 echo ""
 echo "✅ Created code-signing identity '$CERT_NAME'."
 echo "   You can now run ./package_app.sh — it will sign with this identity automatically."
+echo "   Back this identity up to a portable .p12:  ./export_signing_cert.sh"
