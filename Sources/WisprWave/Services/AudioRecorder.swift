@@ -1,26 +1,46 @@
 import Foundation
 import AVFoundation
+import WhisperKit
 
 @MainActor
 class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleBufferDelegate, AVAudioRecorderDelegate {
     // Primary (AVCaptureSession)
     private var captureSession: AVCaptureSession?
     private var audioOutput: AVCaptureAudioDataOutput?
-    
+
     // Legacy (AVAudioRecorder)
     private var audioRecorder: AVAudioRecorder?
     private let temporaryAudioURL: URL
-    
+
     // Store audio samples in memory
     private var audioSamples: [Float] = []
-    
+
     // Stream support
     private var streamContinuation: AsyncThrowingStream<[Float], Error>.Continuation?
     public var audioStream: AsyncThrowingStream<[Float], Error>?
-    
+
     // State
     private var usingLegacyMode = false
     @Published var isRecording = false
+
+    // MARK: - VAD-powered auto-stop
+    //
+    // Detects sustained silence after the user has spoken, then fires `onAutoStop` exactly
+    // once. Only active in non-legacy modes (legacy has no live sample stream).
+    private var vad: EnergyVAD?
+    private var vadEnabled: Bool = false
+    private var vadSilenceThresholdSec: Double = 5.0
+    private var vadHasSpoken: Bool = false
+    private var vadLastVoiceTime: Date?
+    private var vadFired: Bool = false
+    private var vadFrameAccumulator: [Float] = []
+    // EnergyVAD's default frame length is 0.1s at 16 kHz = 1600 samples. We match that
+    // so voiceActivity(in:) returns one bool per frame cleanly.
+    private let vadFrameSize = 1600
+
+    /// Called on MainActor when sustained silence exceeds the configured threshold AND the
+    /// user has spoken at least once since `startRecording`. Fires at most once per session.
+    var onAutoStop: (() -> Void)?
     
     override init() {
         self.temporaryAudioURL = FileManager.default.temporaryDirectory.appendingPathComponent("recording.wav")
@@ -35,10 +55,24 @@ class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleB
         }
     }
     
-    func startRecording(useLegacy: Bool) throws {
+    func startRecording(
+        useLegacy: Bool,
+        autoStopEnabled: Bool = false,
+        autoStopSilenceSeconds: Double = 5.0
+    ) throws {
         audioSamples.removeAll()
         usingLegacyMode = useLegacy
-        
+
+        // Reset VAD state every session. Auto-stop is silently skipped in legacy mode
+        // because that path doesn't deliver live samples to analyze.
+        vadEnabled = autoStopEnabled && !useLegacy
+        vadSilenceThresholdSec = autoStopSilenceSeconds
+        vadHasSpoken = false
+        vadLastVoiceTime = nil
+        vadFired = false
+        vadFrameAccumulator.removeAll(keepingCapacity: true)
+        vad = vadEnabled ? EnergyVAD() : nil
+
         if useLegacy {
             print("Starting Legacy AudioRecorder (File-based)...")
             try startLegacyRecording()
@@ -56,12 +90,17 @@ class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleB
     }
     
     func stopRecording() -> [Float] {
+        // Silence VAD before tearing down the audio pipeline so any straggling sample
+        // callback can't fire onAutoStop after a user-initiated stop.
+        vadEnabled = false
+        vadFired = true
+
         if usingLegacyMode {
             stopLegacyRecording()
         } else {
             stopMemoryRecording()
         }
-        
+
         isRecording = false
         print("Recording stopped. Samples captured: \(audioSamples.count)")
         return audioSamples
@@ -210,11 +249,42 @@ class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleB
         
         Task { @MainActor in
             self.audioSamples.append(contentsOf: resampled)
-            // print("Yielding \(resampled.count) samples to stream") 
+            // print("Yielding \(resampled.count) samples to stream")
             self.streamContinuation?.yield(resampled)
+            self.feedVAD(resampled)
         }
     }
-    
+
+    // MARK: - VAD feed
+    //
+    // The countdown only starts AFTER first detected voice — so hitting the hotkey and
+    // then thinking for a moment before speaking doesn't trip the timer. Brief mid-speech
+    // pauses (a few hundred ms) never trip it because we reset `vadLastVoiceTime` on every
+    // frame that contains voice.
+    private func feedVAD(_ samples: [Float]) {
+        guard vadEnabled, !vadFired, let vad else { return }
+        vadFrameAccumulator.append(contentsOf: samples)
+
+        // Process complete frames only. EnergyVAD returns one Bool per `vadFrameSize`-sized
+        // chunk; partial frames carry over to the next call.
+        let frameCount = vadFrameAccumulator.count / vadFrameSize
+        guard frameCount > 0 else { return }
+        let consumeCount = frameCount * vadFrameSize
+        let processable = Array(vadFrameAccumulator.prefix(consumeCount))
+        vadFrameAccumulator.removeFirst(consumeCount)
+
+        let activity = vad.voiceActivity(in: processable)
+        if activity.contains(true) {
+            vadHasSpoken = true
+            vadLastVoiceTime = Date()
+        } else if vadHasSpoken, let last = vadLastVoiceTime {
+            if Date().timeIntervalSince(last) >= vadSilenceThresholdSec {
+                vadFired = true
+                onAutoStop?()
+            }
+        }
+    }
+
     // MARK: - AVAudioRecorder Delegate
     nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {}
     nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {

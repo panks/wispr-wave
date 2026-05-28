@@ -122,12 +122,36 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .help("Use file-based recording (slower but more compatible)")
-                    
+
                     Toggle("Boost🚀", isOn: $appState.isBoostMode)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .disabled(appState.isLegacyMode)
                         .help("Enable background streaming for faster results")
+                }
+
+                HStack(spacing: 8) {
+                    Toggle("Auto-stop after", isOn: $appState.isAutoStopEnabled)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .disabled(appState.isLegacyMode)
+                        .help("Automatically finalize the dictation once you've been silent for the selected duration. Countdown starts only after you've actually spoken.")
+
+                    Picker("", selection: $appState.autoStopSilenceSeconds) {
+                        Text("3s").tag(3.0)
+                        Text("5s").tag(5.0)
+                        Text("7s").tag(7.0)
+                        Text("10s").tag(10.0)
+                        Text("15s").tag(15.0)
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .font(.caption)
+                    .disabled(!appState.isAutoStopEnabled || appState.isLegacyMode)
+
+                    Text("of silence")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 
                 HStack {
