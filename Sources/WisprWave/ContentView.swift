@@ -164,6 +164,10 @@ struct ContentView: View {
         }
         .frame(width: 320)
         .padding(.bottom, 10)
+        // Lock the layout to its intrinsic content size so MenuBarExtra(.window) doesn't
+        // wrap it with extra translucent chrome above/below — that "peach halo" effect was
+        // the window's material showing the desktop through space SwiftUI wasn't filling.
+        .fixedSize()
         .onAppear {
             appState.modelManager.scanModels()
         }
