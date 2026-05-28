@@ -125,7 +125,7 @@ class ModelManager: ObservableObject {
 
         // Parse HuggingFace URL
         // Format: https://huggingface.co/{repo}/tree/{branch}/{path}
-        // Example: https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3
+        // Example: https://huggingface.co/plive/whisperkit-coreml/tree/main/openai_whisper-large-v3
         guard let url = URL(string: modelInfo.url) else {
             print("Error downloading: invalid URL \(modelInfo.url)")
             self.downloadStatus = "Invalid model URL"
@@ -133,14 +133,14 @@ class ModelManager: ObservableObject {
         }
 
         let pathComponents = url.pathComponents
-        // pathComponents: ["", "argmaxinc", "whisperkit-coreml", "tree", "main", "openai_whisper-large-v3"]
+        // pathComponents: ["", "plive", "whisperkit-coreml", "tree", "main", "openai_whisper-large-v3"]
         guard pathComponents.count >= 6, pathComponents[3] == "tree" else {
             print("Error downloading: invalid HuggingFace tree URL \(modelInfo.url)")
             self.downloadStatus = "Invalid model URL"
             return
         }
 
-        let repo = "\(pathComponents[1])/\(pathComponents[2])"  // "argmaxinc/whisperkit-coreml"
+        let repo = "\(pathComponents[1])/\(pathComponents[2])"  // "plive/whisperkit-coreml"
         let variant = pathComponents[5...].joined(separator: "/") // "openai_whisper-large-v3"
 
         self.isDownloading = true
@@ -231,7 +231,6 @@ class ModelManager: ObservableObject {
             temperature: 0,
             temperatureFallbackCount: 0,
             usePrefillPrompt: true,
-            usePrefillCache: true,
             skipSpecialTokens: true,
             withoutTimestamps: true,
             suppressBlank: true
@@ -280,7 +279,6 @@ class ModelManager: ObservableObject {
                             temperature: 0,
                             temperatureFallbackCount: 0,
                             usePrefillPrompt: true,
-                            usePrefillCache: true,
                             skipSpecialTokens: true,
                             withoutTimestamps: true,
                             clipTimestamps: [lastConfirmedSegmentEndSeconds],
@@ -339,7 +337,6 @@ class ModelManager: ObservableObject {
                             temperature: 0,
                             temperatureFallbackCount: 0,
                             usePrefillPrompt: true,
-                            usePrefillCache: true,
                             skipSpecialTokens: true,
                             withoutTimestamps: true,
                             clipTimestamps: [lastConfirmedSegmentEndSeconds],
