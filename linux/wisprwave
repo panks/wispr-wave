@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# WisprWave Linux CLI. Client commands (toggle/start/stop/cancel/status/quit)
+# run on the system python3 (stdlib only). `serve` needs the venv.
+set -euo pipefail
+HERE="$(dirname "$(readlink -f "$0")")"
+VENV_PY="${WISPRWAVE_DATA:-$HOME/.local/share/wisprwave}/venv/bin/python"
+
+if [[ "${1:-}" == "serve" || "${1:-}" == "test-wav" ]]; then
+    exec "$VENV_PY" "$HERE/wisprwave_daemon.py" "$@"
+fi
+exec /usr/bin/python3 "$HERE/wisprwave_daemon.py" "$@"
