@@ -11,12 +11,17 @@ on an Intel N150).
   at stop (~2s). Long dictations are committed in ~6s chunks *while you speak*
   (each chunk decoded once, with 2s of re-fed left context reconciled by token
   timestamps), so the wait at stop stays ~3s flat regardless of length.
-- **Injection:** clipboard save → `wl-copy` → Ctrl+V via `ydotool` (kernel
-  uinput — no Wayland portal dialogs, survives suspend) → clipboard restore.
-  Falls back to `ydotool type` if wl-clipboard is missing.
+- **Injection:** clipboard save → `wl-copy` → paste keystroke via `ydotool`
+  (kernel uinput — no Wayland portal dialogs, survives suspend) → clipboard
+  restore. Default keystroke is **Shift+Insert**, which regular apps *and*
+  terminals honor; the daemon fills both the clipboard and the primary
+  selection so it works regardless of which buffer the terminal reads.
+  Ctrl+V / Ctrl+Shift+V are selectable per taste (tray menu → Paste method,
+  or `wisprwave paste ctrl_v|ctrl_shift_v|shift_insert`; persisted in
+  settings.json). Falls back to `ydotool type` if wl-clipboard is missing.
 - **Tray icon:** status-bar mic indicator (red + live timer while recording)
-  with toggle/cancel, a "Streaming mode" switch, a "Run on startup" switch,
-  and quit.
+  with toggle/cancel, a "Streaming mode" switch, a "Paste method" submenu,
+  a "Run on startup" switch, and quit.
 - **Two transcription modes:** streaming (default — chunked commits, fast
   flat wait) and single-pass (best accuracy: one full-context decode at stop;
   wait grows ~0.25s per second of speech). Switch from the tray menu or
@@ -100,15 +105,16 @@ Keyboard).
 | `WISPRWAVE_COMMIT_MIN_SEC` | 6 | speech seconds before chunked commitment engages |
 | `WISPRWAVE_CONTEXT_SEC` | 2.0 | committed audio re-fed as left context |
 | `WISPRWAVE_MIN_SILENCE` | 0.4 | pause length that closes a phrase |
-| `WISPRWAVE_PASTE` | `ctrl_v` | `ctrl_shift_v` for terminals |
+| `WISPRWAVE_PASTE` | `shift_insert` | initial default only — a choice made via tray/CLI persists in settings.json and wins |
 | `WISPRWAVE_SOUNDS` | 1 | start/done audio cues (freedesktop theme) |
 
 ## Troubleshooting
 
 - `journalctl --user -u wisprwave -f` — daemon logs (commits, decode timings);
   `-u wisprwave-tray` for the tray
-- Paste lands nowhere: the focused app must accept Ctrl+V; for terminals set
-  `WISPRWAVE_PASTE=ctrl_shift_v`
+- Paste lands nowhere in some app: it probably doesn't honor Shift+Insert —
+  switch Paste method in the tray menu (Ctrl+V for regular apps,
+  Ctrl+Shift+V for terminals)
 - Nothing types at all: check `systemctl --user status ydotool` and that your
   user is in the `input` group (`id`)
 - No tray icon: install one of the `gir1.2-*appindicator3*` packages and make
@@ -128,6 +134,6 @@ emit a token twice — that double-emission strip was the source of occasional
 phantom words before it was partitioned.
 
 Why not live preview like Handy: re-decoding the growing buffer every second
-falls behind real time on this class of CPU (measured 0.63x RT at 23s of
+falls behind real time on N100 class CPUs (measured 0.63x RT at 23s of
 audio, 17s post-stop backlog). Decoding each second of audio exactly once is
 what keeps the daemon real-time.

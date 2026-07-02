@@ -9,6 +9,7 @@ separate process: if the tray dies, dictation keeps working.
 """
 
 import fcntl
+import json
 import os
 import shutil
 import socket
@@ -119,6 +120,27 @@ class Tray:
         self._mode_handler = self.mode_item.connect("toggled", self.on_mode_toggled)
         menu.append(self.mode_item)
 
+        # Paste keystroke. Shift+Insert works in terminals AND regular apps
+        # (the daemon fills both clipboard and primary selection for it);
+        # the others are escape hatches for apps that don't honor it.
+        paste_root = Gtk.MenuItem(label="Paste method")
+        paste_menu = Gtk.Menu()
+        self.paste_items = {}
+        self._paste_handlers = {}
+        group = None
+        for key, label in [("shift_insert", "Shift+Insert (universal)"),
+                           ("ctrl_v", "Ctrl+V"),
+                           ("ctrl_shift_v", "Ctrl+Shift+V (terminals)")]:
+            item = Gtk.RadioMenuItem.new_with_label_from_widget(group, label)
+            group = group or item
+            self._paste_handlers[key] = item.connect(
+                "toggled", self.on_paste_toggled, key)
+            self.paste_items[key] = item
+            paste_menu.append(item)
+        paste_root.set_submenu(paste_menu)
+        self.paste_root = paste_root
+        menu.append(paste_root)
+
         self.autostart_item = Gtk.CheckMenuItem(label="Run on startup")
         enabled = systemctl("is-enabled", "wisprwave").stdout.strip() == "enabled"
         self.autostart_item.set_active(enabled)
@@ -143,17 +165,29 @@ class Tray:
     def on_mode_toggled(self, item):
         daemon_cmd("mode streaming" if item.get_active() else "mode single")
 
-    def _sync_mode(self, daemon_up):
+    def on_paste_toggled(self, item, key):
+        if item.get_active():
+            daemon_cmd(f"paste {key}")
+
+    def _sync_settings(self, info):
+        daemon_up = info is not None
         self.mode_item.set_sensitive(daemon_up)
+        self.paste_root.set_sensitive(daemon_up)
         if not daemon_up:
             return
-        mode = daemon_cmd("mode")
-        if mode in ("streaming", "single"):
-            active = mode == "streaming"
-            if active != self.mode_item.get_active():
-                self.mode_item.handler_block(self._mode_handler)
-                self.mode_item.set_active(active)
-                self.mode_item.handler_unblock(self._mode_handler)
+        active = info.get("mode") == "streaming"
+        if active != self.mode_item.get_active():
+            self.mode_item.handler_block(self._mode_handler)
+            self.mode_item.set_active(active)
+            self.mode_item.handler_unblock(self._mode_handler)
+        paste = info.get("paste")
+        item = self.paste_items.get(paste)
+        if item is not None and not item.get_active():
+            for k, it in self.paste_items.items():
+                it.handler_block(self._paste_handlers[k])
+            item.set_active(True)
+            for k, it in self.paste_items.items():
+                it.handler_unblock(self._paste_handlers[k])
 
     def on_autostart_toggled(self, item):
         action = "enable" if item.get_active() else "disable"
@@ -177,22 +211,25 @@ class Tray:
         self.start_item.set_sensitive(state == "down")
 
     def poll(self):
-        reply = daemon_cmd("status")
-        if reply is None:
-            self.set_state("down", "Daemon not running")
-        elif reply.startswith("recording"):
-            secs = reply.split()[-1].rstrip("s") if " " in reply else "0"
+        info = None
+        reply = daemon_cmd("info")
+        if reply:
             try:
-                mins, rem = divmod(int(float(secs)), 60)
-                label = f"{mins}:{rem:02d}"
+                info = json.loads(reply)
             except ValueError:
-                label = ""
-            self.set_state("recording", "Recording — click Toggle or press your hotkey to stop", label)
-        elif reply == "finalizing":
+                info = None
+        if info is None:
+            self.set_state("down", "Daemon not running")
+        elif info.get("state") == "recording":
+            mins, rem = divmod(int(info.get("seconds", 0)), 60)
+            self.set_state("recording",
+                           "Recording — click Toggle or press your hotkey to stop",
+                           f"{mins}:{rem:02d}")
+        elif info.get("state") == "finalizing":
             self.set_state("finalizing", "Transcribing…")
         else:
             self.set_state("idle", "Idle — ready to dictate")
-        self._sync_mode(reply is not None)
+        self._sync_settings(info)
         return True  # keep the GLib timer running
 
 

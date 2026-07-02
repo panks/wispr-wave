@@ -77,11 +77,18 @@ STOP_GRACE_SEC = 0.25
 
 # Injection
 PASTE_COMBO = {
-    # linux input-event codes, "<code>:<1=down|0=up>" (ctrl=29, shift=42, v=47)
+    # linux input-event codes, "<code>:<1=down|0=up>" (ctrl=29, shift=42,
+    # v=47, insert=110)
+    "shift_insert": ["42:1", "110:1", "110:0", "42:0"],
     "ctrl_v": ["29:1", "47:1", "47:0", "29:0"],
     "ctrl_shift_v": ["29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
 }
-PASTE_METHOD = os.environ.get("WISPRWAVE_PASTE", "ctrl_v")
+# shift_insert is the default: GTK/Qt widgets, browsers, AND terminals all
+# honor it, so no per-app combo switching is needed. Some terminals wire it
+# to the primary selection rather than the clipboard, so inject_text() sets
+# both buffers. Env var is the initial default; a choice made via the tray
+# or `wisprwave paste ...` persists in settings.json and wins.
+PASTE_METHOD = os.environ.get("WISPRWAVE_PASTE", "shift_insert")
 PASTE_DELAY = 0.06
 CLIPBOARD_RESTORE_DELAY = 0.5
 
@@ -204,11 +211,31 @@ def normalize_join(parts):
 # ydotool-type fallback when wl-clipboard is not installed.
 # ---------------------------------------------------------------------------
 
-def inject_text(text):
+def _read_buffer(primary=False):
+    args = ["wl-paste", "--no-newline"] + (["--primary"] if primary else [])
+    try:
+        r = subprocess.run(args, capture_output=True, timeout=2)
+        if r.returncode == 0:
+            return r.stdout
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return None
+
+
+def _write_buffer(data, primary=False):
+    args = ["wl-copy"] + (["--primary"] if primary else [])
+    if data is None:
+        subprocess.run(args + ["--clear"], timeout=5)
+    else:
+        subprocess.run(args, input=data, timeout=5)
+
+
+def inject_text(text, method=None):
     if not text.strip():
         return "nothing to inject"
 
-    combo = PASTE_COMBO.get(PASTE_METHOD, PASTE_COMBO["ctrl_v"])
+    method = method if method in PASTE_COMBO else PASTE_METHOD
+    combo = PASTE_COMBO.get(method, PASTE_COMBO["shift_insert"])
     have_clipboard = shutil.which("wl-copy") and shutil.which("wl-paste")
 
     if not have_clipboard:
@@ -219,17 +246,18 @@ def inject_text(text):
                            capture_output=True, timeout=60)
         return "typed via ydotool" if r.returncode == 0 else f"ydotool type failed: {r.stderr.decode(errors='replace')[:200]}"
 
-    # 1. Save current clipboard (text only; non-text content is not restored)
-    old = None
-    try:
-        r = subprocess.run(["wl-paste", "--no-newline"], capture_output=True, timeout=2)
-        if r.returncode == 0:
-            old = r.stdout
-    except (subprocess.TimeoutExpired, OSError):
-        pass
+    # Terminals bind Shift+Insert to either the clipboard or the primary
+    # selection depending on the emulator — feed both so it never matters.
+    use_primary = method == "shift_insert"
 
-    # 2. Set new clipboard content
-    subprocess.run(["wl-copy"], input=text.encode(), timeout=5)
+    # 1. Save current buffers (text only; non-text content is not restored)
+    old_clip = _read_buffer()
+    old_primary = _read_buffer(primary=True) if use_primary else None
+
+    # 2. Set the transcript
+    _write_buffer(text.encode())
+    if use_primary:
+        _write_buffer(text.encode(), primary=True)
     time.sleep(PASTE_DELAY)
 
     # 3. Paste keystroke through uinput (portal-free, survives suspend)
@@ -237,13 +265,12 @@ def inject_text(text):
     if r.returncode != 0:
         return f"ydotool key failed: {r.stderr.decode(errors='replace')[:200]}"
 
-    # 4. Restore previous clipboard after the target app has read the paste
+    # 4. Restore previous buffers after the target app has read the paste
     time.sleep(CLIPBOARD_RESTORE_DELAY)
-    if old:
-        subprocess.run(["wl-copy"], input=old, timeout=5)
-    elif old is not None:
-        subprocess.run(["wl-copy", "--clear"], timeout=5)
-    return "pasted"
+    _write_buffer(old_clip)
+    if use_primary:
+        _write_buffer(old_primary, primary=True)
+    return f"pasted via {method}"
 
 
 # ---------------------------------------------------------------------------
@@ -477,8 +504,13 @@ class Session:
 class Daemon:
     def __init__(self):
         self.engine = Engine()
-        self.single_pass = bool(load_settings().get("single_pass", False))
-        log.info("mode: %s", "single_pass" if self.single_pass else "streaming")
+        settings = load_settings()
+        self.single_pass = bool(settings.get("single_pass", False))
+        saved_paste = settings.get("paste_method")
+        self.paste_method = saved_paste if saved_paste in PASTE_COMBO else PASTE_METHOD
+        log.info("mode: %s, paste: %s",
+                 "single_pass" if self.single_pass else "streaming",
+                 self.paste_method)
         self.state = "idle"        # idle | recording | finalizing
         self.lock = threading.Lock()
         self.session = None
@@ -529,7 +561,7 @@ class Daemon:
             text = self.session.finalize()
             secs = self.session.seconds
             if text:
-                outcome = inject_text(text)
+                outcome = inject_text(text, self.paste_method)
                 play_sound(SOUND_DONE)
                 log.info("session %.1fs -> %d chars (%s): %r",
                          secs, len(text), outcome, text[:120])
@@ -578,6 +610,27 @@ class Daemon:
             elif arg:
                 return "usage: mode [single|streaming]"
             return "single" if self.single_pass else "streaming"
+        if cmd == "paste" or cmd.startswith("paste "):
+            arg = cmd[6:].strip()
+            if arg in PASTE_COMBO:
+                self.paste_method = arg
+                settings = load_settings()
+                settings["paste_method"] = arg
+                save_settings(settings)
+                log.info("paste method set to %s", arg)
+            elif arg:
+                return f"usage: paste [{'|'.join(PASTE_COMBO)}]"
+            return self.paste_method
+        if cmd == "info":
+            with self.lock:
+                seconds = self.session.seconds if (
+                    self.state == "recording" and self.session) else 0.0
+            return json.dumps({
+                "state": self.state,
+                "seconds": round(seconds, 1),
+                "mode": "single" if self.single_pass else "streaming",
+                "paste": self.paste_method,
+            })
         if cmd == "quit":
             threading.Thread(target=lambda: (time.sleep(0.2), os._exit(0)), daemon=True).start()
             return "bye"
@@ -671,9 +724,9 @@ def main():
         return 0
     if cmd == "test-wav":
         return test_wav(args[1], single="single" in args[2:])
-    if cmd == "mode":
+    if cmd in ("mode", "paste"):
         return client(" ".join(args))
-    if cmd in ("toggle", "start", "stop", "cancel", "status", "quit"):
+    if cmd in ("toggle", "start", "stop", "cancel", "status", "info", "quit"):
         return client(cmd)
     print(f"unknown command: {cmd}", file=sys.stderr)
     return 2
