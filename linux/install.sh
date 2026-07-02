@@ -47,6 +47,29 @@ if [ "$NO_SERVICE" = 0 ]; then
     cp "$HERE/assets/wisprwave-app.png" "$HOME/.local/share/icons/hicolor/256x256/apps/wisprwave-app.png"
     cp "$HERE/assets/wisprwave-app-64.png" "$HOME/.local/share/icons/hicolor/64x64/apps/wisprwave-app.png"
     cp -r "$HERE/assets/tray/hicolor/." "$HOME/.local/share/icons/hicolor/"
+    # GNOME Shell extension: flicker-free clipboard + focused-window info.
+    # Optional — the daemon falls back to wl-clipboard without it. Loads at
+    # the NEXT login (Wayland can't hot-load extensions); enabling it in
+    # gsettings now means no manual step after logging back in.
+    EXT_UUID="wisprwave@panks.github.io"
+    EXT_DIR="$HOME/.local/share/gnome-shell/extensions/$EXT_UUID"
+    mkdir -p "$EXT_DIR"
+    cp "$HERE/gnome-extension/$EXT_UUID/"* "$EXT_DIR/"
+    gnome-extensions enable "$EXT_UUID" 2>/dev/null || true
+    python3 - "$EXT_UUID" <<'PYEOF'
+import ast, subprocess, sys
+uuid = sys.argv[1]
+cur = subprocess.run(["gsettings", "get", "org.gnome.shell", "enabled-extensions"],
+                     capture_output=True, text=True).stdout.strip()
+try:
+    lst = ast.literal_eval(cur) if cur.startswith("[") else []
+except (ValueError, SyntaxError):
+    lst = []
+if uuid not in lst:
+    lst.append(uuid)
+    subprocess.run(["gsettings", "set", "org.gnome.shell", "enabled-extensions", str(lst)])
+PYEOF
+
     systemctl --user daemon-reload
     systemctl --user enable --now wisprwave
     if python3 -c "import gi; gi.require_version('AyatanaAppIndicator3','0.1')" 2>/dev/null \

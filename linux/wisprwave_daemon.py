@@ -31,6 +31,7 @@ The client subcommands only use the stdlib, so they run with the system
 python3; `serve` needs the venv (numpy + sherpa-onnx).
 """
 
+import ast
 import json
 import os
 import sys
@@ -73,7 +74,12 @@ VAD_MIN_SILENCE = float(os.environ.get("WISPRWAVE_MIN_SILENCE", "0.4"))
 VAD_WINDOW = 512  # samples per silero inference, fixed by the model
 
 # Capture: stop grace period so trailing words aren't clipped
-STOP_GRACE_SEC = 0.25
+STOP_GRACE_SEC = 0.15
+
+# Decode-window padding kept around VAD speech boundaries when trimming
+# leading/trailing silence (silence costs ~0.2-0.4s of decode per second
+# of audio on this class of CPU, so think-pauses are worth cutting).
+TRIM_PAD_SEC = 0.3
 
 # Injection
 PASTE_COMBO = {
@@ -211,7 +217,49 @@ def normalize_join(parts):
 # ydotool-type fallback when wl-clipboard is not installed.
 # ---------------------------------------------------------------------------
 
-def _read_buffer(primary=False):
+# --- GNOME Shell extension bridge (see gnome-extension/) ------------------
+# The extension sets/reads the clipboard from inside the shell — no phantom
+# windows, no dock flicker. wl-clipboard has to create an invisible focused
+# window per call because Mutter offers no data-control protocol. Probed per
+# injection; everything falls back to wl-clipboard when it's absent.
+
+EXT_BUS = "io.github.panks.WisprWave"
+EXT_PATH = "/io/github/panks/WisprWave"
+
+
+def _ext_call(method, *args):
+    cmd = ["gdbus", "call", "--session", "--dest", EXT_BUS,
+           "--object-path", EXT_PATH, "--method", f"{EXT_BUS}.{method}", *args]
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=2)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    return r.stdout.decode() if r.returncode == 0 else None
+
+
+def _ext_probe():
+    """Focused window's wm_class via the extension, or None if unavailable."""
+    out = _ext_call("GetFocusedWindow")
+    if out is None:
+        return None
+    try:
+        val = ast.literal_eval(out.strip())
+        return val[0] if isinstance(val, tuple) else str(val)
+    except (ValueError, SyntaxError):
+        return ""
+
+
+def _read_buffer(primary=False, use_ext=False):
+    if use_ext:
+        out = _ext_call("GetClipboard", "true" if primary else "false")
+        if out is None:
+            return None
+        try:
+            val = ast.literal_eval(out.strip())
+            text = val[0] if isinstance(val, tuple) else ""
+            return text.encode() if text else None
+        except (ValueError, SyntaxError):
+            return None
     args = ["wl-paste", "--no-newline"] + (["--primary"] if primary else [])
     try:
         r = subprocess.run(args, capture_output=True, timeout=2)
@@ -222,7 +270,11 @@ def _read_buffer(primary=False):
     return None
 
 
-def _write_buffer(data, primary=False):
+def _write_buffer(data, primary=False, use_ext=False):
+    if use_ext:
+        text = (data or b"").decode(errors="replace")
+        _ext_call("SetClipboard", text, "true" if primary else "false")
+        return
     args = ["wl-copy"] + (["--primary"] if primary else [])
     if data is None:
         subprocess.run(args + ["--clear"], timeout=5)
@@ -238,7 +290,12 @@ def inject_text(text, method=None):
     combo = PASTE_COMBO.get(method, PASTE_COMBO["shift_insert"])
     have_clipboard = shutil.which("wl-copy") and shutil.which("wl-paste")
 
-    if not have_clipboard:
+    focused = _ext_probe()
+    use_ext = focused is not None
+    if use_ext:
+        log.info("clipboard via shell extension (focused: %s)", focused or "?")
+
+    if not use_ext and not have_clipboard:
         # Fallback: type directly through uinput. Slower and ASCII-safest;
         # install wl-clipboard for the paste path.
         log.warning("wl-clipboard not found; falling back to `ydotool type`")
@@ -251,13 +308,13 @@ def inject_text(text, method=None):
     use_primary = method == "shift_insert"
 
     # 1. Save current buffers (text only; non-text content is not restored)
-    old_clip = _read_buffer()
-    old_primary = _read_buffer(primary=True) if use_primary else None
+    old_clip = _read_buffer(use_ext=use_ext)
+    old_primary = _read_buffer(primary=True, use_ext=use_ext) if use_primary else None
 
     # 2. Set the transcript
-    _write_buffer(text.encode())
+    _write_buffer(text.encode(), use_ext=use_ext)
     if use_primary:
-        _write_buffer(text.encode(), primary=True)
+        _write_buffer(text.encode(), primary=True, use_ext=use_ext)
     time.sleep(PASTE_DELAY)
 
     # 3. Paste keystroke through uinput (portal-free, survives suspend)
@@ -267,10 +324,10 @@ def inject_text(text, method=None):
 
     # 4. Restore previous buffers after the target app has read the paste
     time.sleep(CLIPBOARD_RESTORE_DELAY)
-    _write_buffer(old_clip)
+    _write_buffer(old_clip, use_ext=use_ext)
     if use_primary:
-        _write_buffer(old_primary, primary=True)
-    return f"pasted via {method}"
+        _write_buffer(old_primary, primary=True, use_ext=use_ext)
+    return f"pasted via {method}" + (" [ext]" if use_ext else " [wl-clipboard]")
 
 
 # ---------------------------------------------------------------------------
@@ -386,10 +443,13 @@ class Session:
         import numpy as np
         self.np = np
         self.engine = engine
-        # Single-pass mode: no VAD, no mid-speech commits — one full-context
-        # decode at stop. Best accuracy; wait grows with dictation length.
+        # Single-pass mode: no mid-speech commits — one full-context decode
+        # at stop. Best accuracy; wait grows with dictation length. VAD still
+        # runs in both modes: it locates speech so decode windows can skip
+        # leading/trailing silence (think-pauses are pure wasted decode).
         self.single_pass = single_pass
-        self.vad = None if single_pass else engine.new_vad()
+        self.vad = engine.new_vad()
+        self.speech_spans = []    # completed VAD segments: (start, end) samples
         self.chunks = []          # list of float32 arrays (full session audio)
         self.n_samples = 0
         self.vad_residual = np.zeros(0, dtype=np.float32)
@@ -407,8 +467,7 @@ class Session:
         samples = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
         self.chunks.append(samples)
         self.n_samples += len(samples)
-        if self.vad is not None:
-            self._feed_vad(samples)
+        self._feed_vad(samples)
 
     def _feed_vad(self, samples):
         np = self.np
@@ -423,7 +482,9 @@ class Session:
             seg = self.vad.front
             seg_end = seg.start + len(seg.samples)
             self.vad.pop()
-            self._maybe_commit(seg_end)
+            self.speech_spans.append((seg.start, seg_end))
+            if not self.single_pass:
+                self._maybe_commit(seg_end)
 
     # -- chunk commitment ---------------------------------------------------
 
@@ -467,6 +528,7 @@ class Session:
         if uncommitted_sec < COMMIT_MIN_SEC:
             return
         start = max(0, self.committed_end - int(CONTEXT_SEC * SAMPLE_RATE))
+        start = self._trim_leading(start)
         end = min(self.n_samples, seg_end + int(PAD_SEC * SAMPLE_RATE))
         piece, dt = self._decode_window(start, end, drop_context=True,
                                         keep_until=seg_end)
@@ -477,6 +539,28 @@ class Session:
         log.info("committed %.1fs..%.1fs in %.2fs: %r",
                  start / SAMPLE_RATE, seg_end / SAMPLE_RATE, dt, piece[:80])
 
+    # -- silence trimming ---------------------------------------------------
+
+    def _trim_leading(self, start):
+        """Skip silence before the first detected speech (nothing is committed
+        yet, so the window start is free to move forward)."""
+        if self.committed_end == 0 and self.speech_spans:
+            speech_start = self.speech_spans[0][0] - int(TRIM_PAD_SEC * SAMPLE_RATE)
+            return max(start, min(speech_start, self.n_samples))
+        return start
+
+    def _vad_in_speech(self):
+        """Whether the VAD currently has an open (uncompleted) speech segment.
+        Conservative default: if the binding can't tell us, assume speech so
+        the tail is never trimmed away."""
+        checker = getattr(self.vad, "is_speech_detected", None)
+        if callable(checker):
+            try:
+                return bool(checker())
+            except Exception:
+                return True
+        return True
+
     # -- finalize -----------------------------------------------------------
 
     def finalize(self):
@@ -484,10 +568,20 @@ class Session:
         if self.cancelled:
             return ""
         start = max(0, self.committed_end - int(CONTEXT_SEC * SAMPLE_RATE))
-        piece, dt = self._decode_window(start, self.n_samples,
+        start = self._trim_leading(start)
+        end = self.n_samples
+        # Trailing-silence trim: only when the last speech closed as a VAD
+        # segment (no open segment = nothing being said) and the silent tail
+        # is big enough to be worth cutting.
+        if self.speech_spans:
+            tail_silence = self.n_samples - self.speech_spans[-1][1]
+            if tail_silence > SAMPLE_RATE and not self._vad_in_speech():
+                end = min(end, self.speech_spans[-1][1] + int(TRIM_PAD_SEC * SAMPLE_RATE))
+        piece, dt = self._decode_window(start, end,
                                         drop_context=self.committed_end > 0)
-        log.info("final tail decode (%.1fs..%.1fs) took %.2fs",
-                 start / SAMPLE_RATE, self.n_samples / SAMPLE_RATE, dt)
+        log.info("final tail decode (%.1fs..%.1fs of %.1fs) took %.2fs",
+                 start / SAMPLE_RATE, end / SAMPLE_RATE,
+                 self.n_samples / SAMPLE_RATE, dt)
         if piece:
             self.parts.append(piece)
         return normalize_join(self.parts)

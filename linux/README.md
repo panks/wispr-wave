@@ -22,6 +22,15 @@ on an Intel N150).
 - **Tray icon:** status-bar mic indicator (red + live timer while recording)
   with toggle/cancel, a "Streaming mode" switch, a "Paste method" submenu,
   a "Run on startup" switch, and quit.
+- **Silence trimming:** VAD locates speech in both modes, so decode windows
+  skip leading/trailing silence — a think-pause before speaking no longer
+  costs decode time.
+- **GNOME Shell extension (bundled, optional):** a ~70-line extension gives
+  the daemon flicker-free clipboard access from inside the shell. Without it,
+  `wl-copy`/`wl-paste` must flash an invisible focus-stealing window per call
+  (GNOME offers no data-control protocol), which shows up as dock flicker
+  during pastes. Installed and enabled by `install.sh`; takes effect after
+  the next login. The daemon auto-detects it and falls back to wl-clipboard.
 - **Two transcription modes:** streaming (default — chunked commits, fast
   flat wait) and single-pass (best accuracy: one full-context decode at stop;
   wait grows ~0.25s per second of speech). Switch from the tray menu or
@@ -38,7 +47,7 @@ Ubuntu 24.04+ (or similar) with GNOME on Wayland, systemd user session,
 |---|---|---|
 | `ydotool` | sends the paste keystroke through kernel uinput | required |
 | `wl-clipboard` | clipboard save/set/restore around the paste | strongly recommended |
-| `gir1.2-ayatanaappindicator3-0.1` | tray icon bindings for Python | optional — tray only; the legacy `gir1.2-appindicator3-0.1` also works and may already be present (e.g. installed alongside Handy) |
+| `gir1.2-ayatanaappindicator3-0.1` | tray icon bindings for Python | optional — tray only; the legacy `gir1.2-appindicator3-0.1` also works and may already be present |
 | `alsa-utils` *or* PipeWire tools | mic capture (`arecord`/`pw-record`/`parec`, first found wins) | preinstalled on Ubuntu |
 
 Everything else is user-local: `install.sh` bootstraps
@@ -60,9 +69,12 @@ cd linux && ./install.sh
 ```
 
 `install.sh` sets up the venv, fetches models if missing, installs the
-`wisprwave` + `wisprwave-tray` systemd user services, the desktop entry, and
-the app icon — then starts everything. It is idempotent: re-run it any time.
-`./install.sh --no-service` skips the systemd/desktop steps (containers, CI).
+`wisprwave` + `wisprwave-tray` systemd user services, the desktop entry, the
+app icon, and the GNOME Shell extension — then starts everything. It is
+idempotent: re-run it any time. **Log out and back in once** so GNOME loads
+the extension (everything works before that too, just with clipboard
+flicker). `./install.sh --no-service` skips the systemd/desktop steps
+(containers, CI).
 
 **3. Bind a hotkey:** GNOME Settings → Keyboard → Custom Shortcuts → add a
 shortcut whose command is:
@@ -133,7 +145,7 @@ threshold (cut + 0.2s, by token timestamp), so decoder pad regions can't
 emit a token twice — that double-emission strip was the source of occasional
 phantom words before it was partitioned.
 
-Why not live preview like Handy: re-decoding the growing buffer every second
-falls behind real time on N100 class CPUs (measured 0.63x RT at 23s of
+Why not live preview: re-decoding the growing buffer every second
+falls behind real time on weaker N100 class CPUs (measured 0.63x RT at 23s of
 audio, 17s post-stop backlog). Decoding each second of audio exactly once is
 what keeps the daemon real-time.

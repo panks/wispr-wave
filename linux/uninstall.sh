@@ -24,6 +24,22 @@ if [ "$NO_SERVICE" = 0 ]; then
     rm -f "$HOME/.config/systemd/user/wisprwave.service" \
           "$HOME/.config/systemd/user/wisprwave-tray.service"
     systemctl --user daemon-reload 2>/dev/null || true
+    EXT_UUID="wisprwave@panks.github.io"
+    gnome-extensions disable "$EXT_UUID" 2>/dev/null || true
+    rm -rf "$HOME/.local/share/gnome-shell/extensions/$EXT_UUID"
+    python3 - "$EXT_UUID" <<'PYEOF' 2>/dev/null || true
+import ast, subprocess, sys
+uuid = sys.argv[1]
+cur = subprocess.run(["gsettings", "get", "org.gnome.shell", "enabled-extensions"],
+                     capture_output=True, text=True).stdout.strip()
+try:
+    lst = ast.literal_eval(cur) if cur.startswith("[") else []
+except (ValueError, SyntaxError):
+    lst = []
+if uuid in lst:
+    lst.remove(uuid)
+    subprocess.run(["gsettings", "set", "org.gnome.shell", "enabled-extensions", str(lst)])
+PYEOF
     rm -f "$HOME/.local/share/applications/wisprwave.desktop" \
           "$HOME/.local/share/icons/hicolor/256x256/apps/"wisprwave*.png \
           "$HOME/.local/share/icons/hicolor/64x64/apps/"wisprwave*.png
