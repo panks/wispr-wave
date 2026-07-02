@@ -23,3 +23,4 @@ download_model.sh
 
 # Signing identity — NEVER commit. See create_signing_cert.sh / export_signing_cert.sh.
 *.p12
+__pycache__/

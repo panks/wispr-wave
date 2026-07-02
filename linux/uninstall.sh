@@ -20,10 +20,14 @@ for arg in "$@"; do
 done
 
 if [ "$NO_SERVICE" = 0 ]; then
-    systemctl --user disable --now wisprwave 2>/dev/null || true
-    rm -f "$HOME/.config/systemd/user/wisprwave.service"
+    systemctl --user disable --now wisprwave wisprwave-tray 2>/dev/null || true
+    rm -f "$HOME/.config/systemd/user/wisprwave.service" \
+          "$HOME/.config/systemd/user/wisprwave-tray.service"
     systemctl --user daemon-reload 2>/dev/null || true
-    echo "service removed"
+    rm -f "$HOME/.local/share/applications/wisprwave.desktop" \
+          "$HOME/.local/share/icons/hicolor/256x256/apps/wisprwave.png" \
+          "$HOME/.local/share/icons/hicolor/64x64/apps/wisprwave.png"
+    echo "services and desktop entry removed"
 fi
 
 rm -rf "$DATA/venv"

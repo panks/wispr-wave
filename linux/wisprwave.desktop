@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=WisprWave
+Comment=Local speech-to-text dictation
+Exec=/usr/bin/python3 %h/code/wispr-wave/linux/wisprwave_tray.py
+Icon=wisprwave
+Terminal=false
+Categories=Utility;Audio;
+StartupNotify=false

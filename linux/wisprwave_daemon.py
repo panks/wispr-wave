@@ -116,6 +116,43 @@ def notify(summary, body=""):
 _PUNCT = ".,!?;:"
 
 
+MODEL_RELEASE_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
+
+
+def ensure_models():
+    """First-run: download models if missing, so a packaged install can ship
+    without 640MB of weights. Extracts to a temp dir then renames, so an
+    interrupted download never leaves a half-usable model behind."""
+    import tarfile
+    import tempfile
+    import urllib.request
+
+    models_root = os.path.dirname(MODEL_DIR)
+    os.makedirs(models_root, exist_ok=True)
+
+    if not os.path.isdir(MODEL_DIR):
+        name = os.path.basename(MODEL_DIR)
+        url = f"{MODEL_RELEASE_BASE}/{name}.tar.bz2"
+        log.info("model missing; downloading %s", url)
+        notify("WisprWave", "First run: downloading speech model (~460MB)…")
+        tmp = tempfile.mkdtemp(dir=models_root, prefix=".download-")
+        try:
+            with urllib.request.urlopen(url) as resp:
+                with tarfile.open(fileobj=resp, mode="r|bz2") as tar:
+                    tar.extractall(tmp, filter="data")
+            os.rename(os.path.join(tmp, name), MODEL_DIR)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        notify("WisprWave", "Speech model ready")
+        log.info("model downloaded")
+
+    if not os.path.isfile(VAD_MODEL):
+        log.info("VAD model missing; downloading")
+        tmp_path = VAD_MODEL + ".part"
+        urllib.request.urlretrieve(f"{MODEL_RELEASE_BASE}/silero_vad.onnx", tmp_path)
+        os.rename(tmp_path, VAD_MODEL)
+
+
 def normalize_join(parts):
     out = []
     for p in (p.strip() for p in parts if p and p.strip()):
@@ -573,6 +610,12 @@ def main():
     cmd = args[0]
     if cmd == "serve":
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+        try:
+            ensure_models()
+        except Exception as e:
+            log.error("model download failed: %s", e)
+            notify("WisprWave error", f"Model download failed: {e}")
+            return 1
         Daemon().serve()
         return 0
     if cmd == "test-wav":

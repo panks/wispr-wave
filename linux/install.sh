@@ -33,13 +33,29 @@ if [ ! -f "$MODELS/silero_vad.onnx" ]; then
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
 fi
 
-# 3. systemd user service (rewrites ExecStart to this checkout's path)
+# 3. systemd user services + desktop integration (paths rewritten to this checkout)
 if [ "$NO_SERVICE" = 0 ]; then
-    mkdir -p "$HOME/.config/systemd/user"
+    mkdir -p "$HOME/.config/systemd/user" "$HOME/.local/share/applications" \
+             "$HOME/.local/share/icons/hicolor/256x256/apps" \
+             "$HOME/.local/share/icons/hicolor/64x64/apps"
     sed "s|%h/code/wispr-wave/linux|$HERE|" "$HERE/wisprwave.service" \
         > "$HOME/.config/systemd/user/wisprwave.service"
+    sed "s|%h/code/wispr-wave/linux|$HERE|" "$HERE/wisprwave-tray.service" \
+        > "$HOME/.config/systemd/user/wisprwave-tray.service"
+    sed "s|%h/code/wispr-wave/linux|$HERE|" "$HERE/wisprwave.desktop" \
+        > "$HOME/.local/share/applications/wisprwave.desktop"
+    cp "$HERE/assets/wisprwave.png" "$HOME/.local/share/icons/hicolor/256x256/apps/wisprwave.png"
+    cp "$HERE/assets/wisprwave-64.png" "$HOME/.local/share/icons/hicolor/64x64/apps/wisprwave.png"
     systemctl --user daemon-reload
     systemctl --user enable --now wisprwave
+    if python3 -c "import gi; gi.require_version('AyatanaAppIndicator3','0.1')" 2>/dev/null \
+    || python3 -c "import gi; gi.require_version('AppIndicator3','0.1')" 2>/dev/null; then
+        systemctl --user enable --now wisprwave-tray
+    else
+        echo "NOTE: tray icon skipped — install its library first:"
+        echo "        sudo apt install gir1.2-ayatanaappindicator3-0.1"
+        echo "      then run: systemctl --user enable --now wisprwave-tray"
+    fi
     echo "Done. Bind a hotkey to: $HERE/wisprwave toggle"
 else
     echo "Done (service skipped). Daemon: $DATA/venv/bin/python $HERE/wisprwave_daemon.py serve"

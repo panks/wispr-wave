@@ -7,42 +7,82 @@ on an Intel N150).
 - **Engine:** NVIDIA Parakeet TDT 0.6B v2 (int8) via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
 - **Segmentation:** Silero VAD — chunks are only cut at real pauses, so words
   are never split across segments
-- **Latency strategy:** hybrid. Short dictations get one full-context decode at
-  stop (~1–3s). Long dictations are committed in ~10s chunks *while you speak*
+- **Latency strategy:** hybrid. Short dictations get one full-context decode
+  at stop (~2s). Long dictations are committed in ~6s chunks *while you speak*
   (each chunk decoded once, with 2s of re-fed left context reconciled by token
-  timestamps), so the wait at stop stays ~1–2s regardless of length.
+  timestamps), so the wait at stop stays ~3s flat regardless of length.
 - **Injection:** clipboard save → `wl-copy` → Ctrl+V via `ydotool` (kernel
   uinput — no Wayland portal dialogs, survives suspend) → clipboard restore.
   Falls back to `ydotool type` if wl-clipboard is missing.
+- **Tray icon:** status-bar mic indicator (red + live timer while recording)
+  with toggle/cancel, a "Run on startup" switch, and quit.
 
-## Setup
+## Requirements
 
-System packages (the only sudo steps):
+Ubuntu 24.04+ (or similar) with GNOME on Wayland, systemd user session,
+`python3` and `curl` (both preinstalled on Ubuntu).
+
+| Package | Why | Needed? |
+|---|---|---|
+| `ydotool` | sends the paste keystroke through kernel uinput | required |
+| `wl-clipboard` | clipboard save/set/restore around the paste | strongly recommended |
+| `gir1.2-ayatanaappindicator3-0.1` | tray icon bindings for Python | optional — tray only; the legacy `gir1.2-appindicator3-0.1` also works and may already be present (e.g. installed alongside Handy) |
+| `alsa-utils` *or* PipeWire tools | mic capture (`arecord`/`pw-record`/`parec`, first found wins) | preinstalled on Ubuntu |
+
+Everything else is user-local: `install.sh` bootstraps
+[uv](https://docs.astral.sh/uv/) into `~/.local/bin` if missing, creates a
+private venv with `sherpa-onnx` + `numpy`, and the daemon downloads the
+speech models (~460MB, one time) on first start if they aren't present.
+Nothing outside `~/.local` and `~/.config` is written without sudo.
+
+## Install
 
 ```bash
-sudo apt install ydotool wl-clipboard          # uinput typing + clipboard
-sudo usermod -aG input $USER                   # then log out/in (or reboot)
+# 1. System packages + uinput access (the only sudo steps)
+sudo apt install ydotool wl-clipboard gir1.2-ayatanaappindicator3-0.1
+sudo usermod -aG input $USER        # uinput permission; log out/in (or reboot)
 systemctl --user enable --now ydotool
+
+# 2. App install (no sudo)
+cd linux && ./install.sh
 ```
 
-App setup (no sudo):
+`install.sh` sets up the venv, fetches models if missing, installs the
+`wisprwave` + `wisprwave-tray` systemd user services, the desktop entry, and
+the app icon — then starts everything. It is idempotent: re-run it any time.
+`./install.sh --no-service` skips the systemd/desktop steps (containers, CI).
+
+**3. Bind a hotkey:** GNOME Settings → Keyboard → Custom Shortcuts → add a
+shortcut whose command is:
+
+```
+/path/to/wispr-wave/linux/wisprwave toggle
+```
+
+Press once to start recording, again to stop; the text pastes into whatever
+app has focus. Also available: `wisprwave cancel` (discard the current
+recording), `wisprwave status`, and the same actions from the tray menu.
+"Run on startup" in the tray menu controls whether both services start at
+login (they do after install).
+
+## Updating
 
 ```bash
-./install.sh        # venv + models (~640MB download if not present) + service
+git pull && cd linux && ./install.sh && systemctl --user restart wisprwave wisprwave-tray
 ```
 
-`./install.sh --no-service` skips the systemd step (containers, tests). To
-remove: `./uninstall.sh` (keeps the downloaded models), `./uninstall.sh
---purge` (removes everything under `~/.local/share/wisprwave`).
+## Uninstall
 
-Bind a key: GNOME Settings → Keyboard → Custom Shortcuts → command:
-
-```
-/home/YOU/code/wispr-wave/linux/wisprwave toggle
+```bash
+cd linux
+./uninstall.sh            # stops/removes services, desktop entry, venv; keeps models
+./uninstall.sh --purge    # also deletes ~/.local/share/wisprwave (incl. 640MB models)
 ```
 
-Press once to start recording, again to stop; text pastes into the focused
-app. `wisprwave cancel` discards a recording, `wisprwave status` reports state.
+Not removed automatically (one-time system setup, shared with other tools):
+the apt packages, your `input` group membership, the ydotool user service,
+uv in `~/.local/bin`, and the GNOME custom shortcut (delete it in Settings →
+Keyboard).
 
 ## Configuration (environment variables, set in the systemd unit)
 
@@ -58,11 +98,14 @@ app. `wisprwave cancel` discards a recording, `wisprwave status` reports state.
 
 ## Troubleshooting
 
-- `journalctl --user -u wisprwave -f` — daemon logs (commits, decode timings)
+- `journalctl --user -u wisprwave -f` — daemon logs (commits, decode timings);
+  `-u wisprwave-tray` for the tray
 - Paste lands nowhere: the focused app must accept Ctrl+V; for terminals set
   `WISPRWAVE_PASTE=ctrl_shift_v`
 - Nothing types at all: check `systemctl --user status ydotool` and that your
   user is in the `input` group (`id`)
+- No tray icon: install one of the `gir1.2-*appindicator3*` packages and make
+  sure the AppIndicator GNOME extension is enabled (default on Ubuntu)
 - Test the pipeline without a mic: `./wisprwave test-wav path/to/16k-mono.wav`
 
 ## Design notes
