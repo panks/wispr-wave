@@ -15,7 +15,14 @@ on an Intel N150).
   uinput — no Wayland portal dialogs, survives suspend) → clipboard restore.
   Falls back to `ydotool type` if wl-clipboard is missing.
 - **Tray icon:** status-bar mic indicator (red + live timer while recording)
-  with toggle/cancel, a "Run on startup" switch, and quit.
+  with toggle/cancel, a "Streaming mode" switch, a "Run on startup" switch,
+  and quit.
+- **Two transcription modes:** streaming (default — chunked commits, fast
+  flat wait) and single-pass (best accuracy: one full-context decode at stop;
+  wait grows ~0.25s per second of speech). Switch from the tray menu or
+  `wisprwave mode single|streaming`; the choice persists in
+  `~/.local/share/wisprwave/settings.json`. Short dictations (under ~6s of
+  speech) are identical in both modes.
 
 ## Requirements
 
@@ -114,6 +121,11 @@ Why chunks never split words: cuts happen only where Silero VAD confirmed
 ≥0.4s of silence — a word cannot span a pause. The pathological no-pause case
 force-splits at 20s (Silero's max-speech guard); the 2s left-context re-feed
 means the next chunk still decodes the boundary with acoustic context.
+
+Seam ownership: both sides of a cut filter tokens against the same absolute
+threshold (cut + 0.2s, by token timestamp), so decoder pad regions can't
+emit a token twice — that double-emission strip was the source of occasional
+phantom words before it was partitioned.
 
 Why not live preview like Handy: re-decoding the growing buffer every second
 falls behind real time on this class of CPU (measured 0.63x RT at 23s of

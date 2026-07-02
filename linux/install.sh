@@ -44,8 +44,9 @@ if [ "$NO_SERVICE" = 0 ]; then
         > "$HOME/.config/systemd/user/wisprwave-tray.service"
     sed "s|%h/code/wispr-wave/linux|$HERE|" "$HERE/wisprwave.desktop" \
         > "$HOME/.local/share/applications/wisprwave.desktop"
-    cp "$HERE/assets/wisprwave.png" "$HOME/.local/share/icons/hicolor/256x256/apps/wisprwave.png"
-    cp "$HERE/assets/wisprwave-64.png" "$HOME/.local/share/icons/hicolor/64x64/apps/wisprwave.png"
+    cp "$HERE/assets/wisprwave-app.png" "$HOME/.local/share/icons/hicolor/256x256/apps/wisprwave-app.png"
+    cp "$HERE/assets/wisprwave-app-64.png" "$HOME/.local/share/icons/hicolor/64x64/apps/wisprwave-app.png"
+    cp -r "$HERE/assets/tray/hicolor/." "$HOME/.local/share/icons/hicolor/"
     systemctl --user daemon-reload
     systemctl --user enable --now wisprwave
     if python3 -c "import gi; gi.require_version('AyatanaAppIndicator3','0.1')" 2>/dev/null \

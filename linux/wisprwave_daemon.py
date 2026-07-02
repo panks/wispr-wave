@@ -31,6 +31,7 @@ The client subcommands only use the stdlib, so they run with the system
 python3; `serve` needs the venv (numpy + sherpa-onnx).
 """
 
+import json
 import os
 import sys
 import shutil
@@ -63,6 +64,11 @@ NUM_THREADS = int(os.environ.get("WISPRWAVE_THREADS", "4"))
 COMMIT_MIN_SEC = float(os.environ.get("WISPRWAVE_COMMIT_MIN_SEC", "6"))
 CONTEXT_SEC = float(os.environ.get("WISPRWAVE_CONTEXT_SEC", "2.0"))
 PAD_SEC = 0.25
+# Tokens stamped within SEAM_SEC after a cut belong to the earlier chunk.
+# Both sides of a seam test against the same absolute threshold, so no token
+# can be emitted twice. Safe because cuts sit at the start of >=0.4s of
+# VAD-confirmed silence: real next-utterance speech is always beyond it.
+SEAM_SEC = 0.2
 VAD_MIN_SILENCE = float(os.environ.get("WISPRWAVE_MIN_SILENCE", "0.4"))
 VAD_WINDOW = 512  # samples per silero inference, fixed by the model
 
@@ -85,6 +91,24 @@ SOUND_START = os.path.join(SOUND_DIR, "audio-volume-change.oga")
 SOUND_DONE = os.path.join(SOUND_DIR, "message.oga")
 
 log = logging.getLogger("wisprwave")
+
+SETTINGS_PATH = os.path.join(DATA_DIR, "settings.json")
+
+
+def load_settings():
+    try:
+        with open(SETTINGS_PATH) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(settings):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = SETTINGS_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(settings, f, indent=2)
+    os.rename(tmp, SETTINGS_PATH)
 
 
 # ---------------------------------------------------------------------------
@@ -331,11 +355,14 @@ class Engine:
 # ---------------------------------------------------------------------------
 
 class Session:
-    def __init__(self, engine):
+    def __init__(self, engine, single_pass=False):
         import numpy as np
         self.np = np
         self.engine = engine
-        self.vad = engine.new_vad()
+        # Single-pass mode: no VAD, no mid-speech commits — one full-context
+        # decode at stop. Best accuracy; wait grows with dictation length.
+        self.single_pass = single_pass
+        self.vad = None if single_pass else engine.new_vad()
         self.chunks = []          # list of float32 arrays (full session audio)
         self.n_samples = 0
         self.vad_residual = np.zeros(0, dtype=np.float32)
@@ -353,7 +380,8 @@ class Session:
         samples = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
         self.chunks.append(samples)
         self.n_samples += len(samples)
-        self._feed_vad(samples)
+        if self.vad is not None:
+            self._feed_vad(samples)
 
     def _feed_vad(self, samples):
         np = self.np
@@ -378,9 +406,12 @@ class Session:
             self.chunks = [np.concatenate(self.chunks)]
         return self.chunks[0] if self.chunks else np.zeros(0, dtype=np.float32)
 
-    def _decode_window(self, start, end, drop_context):
-        """Decode audio[start:end]; if drop_context, discard tokens that fall
-        before self.committed_end (they were re-fed as left context only)."""
+    def _decode_window(self, start, end, drop_context, keep_until=None):
+        """Decode audio[start:end]. If drop_context, discard tokens stamped at
+        or before the previous seam (that audio was re-fed as left context
+        only). If keep_until is set (sample index), discard tokens stamped
+        past that seam — the pad beyond it is right-context only; the next
+        chunk owns that audio."""
         audio = self._audio()
         window = audio[start:end]
         if len(window) < SAMPLE_RATE // 4:
@@ -388,11 +419,17 @@ class Session:
         t0 = time.monotonic()
         text, tokens, stamps = self.engine.decode(window)
         dt = time.monotonic() - t0
-        if not drop_context or self.committed_end <= start:
+        lo = None
+        if drop_context and self.committed_end > start:
+            lo = (self.committed_end - start) / SAMPLE_RATE + SEAM_SEC
+        hi = None
+        if keep_until is not None:
+            hi = (keep_until - start) / SAMPLE_RATE + SEAM_SEC
+        if lo is None and hi is None:
             return text.strip(), dt
-        cutoff = (self.committed_end - start) / SAMPLE_RATE - 0.05
         if tokens and stamps and len(tokens) == len(stamps):
-            kept = [tok for tok, ts in zip(tokens, stamps) if ts >= cutoff]
+            kept = [tok for tok, ts in zip(tokens, stamps)
+                    if (lo is None or ts > lo) and (hi is None or ts <= hi)]
             return "".join(kept).strip(), dt
         return text.strip(), dt  # no timestamps: accept possible overlap
 
@@ -404,7 +441,8 @@ class Session:
             return
         start = max(0, self.committed_end - int(CONTEXT_SEC * SAMPLE_RATE))
         end = min(self.n_samples, seg_end + int(PAD_SEC * SAMPLE_RATE))
-        piece, dt = self._decode_window(start, end, drop_context=True)
+        piece, dt = self._decode_window(start, end, drop_context=True,
+                                        keep_until=seg_end)
         self.commit_time += dt
         if piece:
             self.parts.append(piece)
@@ -439,6 +477,8 @@ class Session:
 class Daemon:
     def __init__(self):
         self.engine = Engine()
+        self.single_pass = bool(load_settings().get("single_pass", False))
+        log.info("mode: %s", "single_pass" if self.single_pass else "streaming")
         self.state = "idle"        # idle | recording | finalizing
         self.lock = threading.Lock()
         self.session = None
@@ -454,7 +494,7 @@ class Daemon:
             if self.state != "idle":
                 return f"busy: {self.state}"
             self.state = "recording"
-        self.session = Session(self.engine)
+        self.session = Session(self.engine, single_pass=self.single_pass)
         self.queue = queue_mod.Queue()
         self.capture = Capture(self.queue)
         self.capture.start()
@@ -527,6 +567,17 @@ class Daemon:
                 if self.state == "recording" and self.session:
                     return f"recording {self.session.seconds:.1f}s"
                 return self.state
+        if cmd == "mode" or cmd.startswith("mode "):
+            arg = cmd[5:].strip()
+            if arg in ("single", "streaming"):
+                self.single_pass = arg == "single"
+                settings = load_settings()
+                settings["single_pass"] = self.single_pass
+                save_settings(settings)
+                log.info("mode set to %s", arg)
+            elif arg:
+                return "usage: mode [single|streaming]"
+            return "single" if self.single_pass else "streaming"
         if cmd == "quit":
             threading.Thread(target=lambda: (time.sleep(0.2), os._exit(0)), daemon=True).start()
             return "bye"
@@ -581,10 +632,10 @@ def read_wav_mono16k(path):
     return np.frombuffer(raw, dtype=np.int16)
 
 
-def test_wav(path):
+def test_wav(path, single=False):
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     engine = Engine()
-    session = Session(engine)
+    session = Session(engine, single_pass=single)
     pcm = read_wav_mono16k(path)
     # feed in 100ms slices, as live capture would
     step = SAMPLE_RATE // 10
@@ -619,7 +670,9 @@ def main():
         Daemon().serve()
         return 0
     if cmd == "test-wav":
-        return test_wav(args[1])
+        return test_wav(args[1], single="single" in args[2:])
+    if cmd == "mode":
+        return client(" ".join(args))
     if cmd in ("toggle", "start", "stop", "cancel", "status", "quit"):
         return client(cmd)
     print(f"unknown command: {cmd}", file=sys.stderr)

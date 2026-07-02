@@ -8,6 +8,7 @@ the daemon over its Unix socket; polls status once a second. Deliberately a
 separate process: if the tray dies, dictation keeps working.
 """
 
+import fcntl
 import os
 import shutil
 import socket
@@ -34,7 +35,20 @@ RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
 SOCKET_PATH = os.environ.get("WISPRWAVE_SOCKET", os.path.join(RUNTIME_DIR, "wisprwave.sock"))
 UNITS = ["wisprwave", "wisprwave-tray"]
 
+# WisprWave app icon with state badges, installed into the user's hicolor
+# theme by install.sh (assets/tray/hicolor). Falls back to stock symbolic
+# icons if the custom set isn't installed.
+#
+# NOTE: GNOME Shell caches panel icons by NAME — when the artwork changes,
+# these names must change too (cache-bust), or users see stale icons until
+# they log out.
 ICONS = {
+    "idle": "wisprwave-panel",
+    "recording": "wisprwave-panel-recording",
+    "finalizing": "wisprwave-panel-busy",
+    "down": "wisprwave-panel-down",
+}
+FALLBACK_ICONS = {
     "idle": "audio-input-microphone-symbolic",
     "recording": "media-record-symbolic",
     "finalizing": "emblem-synchronizing-symbolic",
@@ -66,8 +80,11 @@ def systemctl(*args):
 
 class Tray:
     def __init__(self):
+        self.icons = ICONS
+        if not Gtk.IconTheme.get_default().has_icon(ICONS["idle"]):
+            self.icons = FALLBACK_ICONS
         self.indicator = AppIndicator.Indicator.new(
-            "wisprwave", ICONS["down"],
+            "wisprwave", self.icons["down"],
             AppIndicator.IndicatorCategory.APPLICATION_STATUS)
         self.indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)
         self.indicator.set_title("WisprWave")
@@ -94,6 +111,14 @@ class Tray:
 
         menu.append(Gtk.SeparatorMenuItem())
 
+        # Checked = streaming (chunked commits during speech, fast stop).
+        # Unchecked = single-pass decode at stop: best accuracy, wait grows
+        # with dictation length.
+        self.mode_item = Gtk.CheckMenuItem(label="Streaming mode (fast)")
+        self.mode_item.set_active(daemon_cmd("mode") != "single")
+        self._mode_handler = self.mode_item.connect("toggled", self.on_mode_toggled)
+        menu.append(self.mode_item)
+
         self.autostart_item = Gtk.CheckMenuItem(label="Run on startup")
         enabled = systemctl("is-enabled", "wisprwave").stdout.strip() == "enabled"
         self.autostart_item.set_active(enabled)
@@ -115,6 +140,21 @@ class Tray:
         menu.show_all()
         self.indicator.set_menu(menu)
 
+    def on_mode_toggled(self, item):
+        daemon_cmd("mode streaming" if item.get_active() else "mode single")
+
+    def _sync_mode(self, daemon_up):
+        self.mode_item.set_sensitive(daemon_up)
+        if not daemon_up:
+            return
+        mode = daemon_cmd("mode")
+        if mode in ("streaming", "single"):
+            active = mode == "streaming"
+            if active != self.mode_item.get_active():
+                self.mode_item.handler_block(self._mode_handler)
+                self.mode_item.set_active(active)
+                self.mode_item.handler_unblock(self._mode_handler)
+
     def on_autostart_toggled(self, item):
         action = "enable" if item.get_active() else "disable"
         for unit in UNITS:
@@ -128,7 +168,7 @@ class Tray:
 
     def set_state(self, state, status_text, label=""):
         if state != self.last_state:
-            self.indicator.set_icon_full(ICONS[state], status_text)
+            self.indicator.set_icon_full(self.icons[state], status_text)
             self.last_state = state
         self.indicator.set_label(label, "0:00")
         self.status_item.set_label(status_text)
@@ -152,13 +192,31 @@ class Tray:
             self.set_state("finalizing", "Transcribing…")
         else:
             self.set_state("idle", "Idle — ready to dictate")
+        self._sync_mode(reply is not None)
         return True  # keep the GLib timer running
+
+
+def acquire_single_instance_lock():
+    """flock-based guard so a second tray (e.g. launched from the app grid
+    while the systemd one runs) exits instead of showing a duplicate icon."""
+    f = open(os.path.join(RUNTIME_DIR, "wisprwave-tray.lock"), "w")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return None
+    f.write(str(os.getpid()))
+    f.flush()
+    return f
 
 
 def main():
     if not shutil.which("systemctl"):
         print("tray requires systemd user session", file=sys.stderr)
         return 1
+    lock = acquire_single_instance_lock()
+    if lock is None:
+        print("wisprwave tray is already running")
+        return 0
     Tray()
     Gtk.main()
     return 0

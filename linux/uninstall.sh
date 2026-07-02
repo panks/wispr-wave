@@ -25,8 +25,12 @@ if [ "$NO_SERVICE" = 0 ]; then
           "$HOME/.config/systemd/user/wisprwave-tray.service"
     systemctl --user daemon-reload 2>/dev/null || true
     rm -f "$HOME/.local/share/applications/wisprwave.desktop" \
-          "$HOME/.local/share/icons/hicolor/256x256/apps/wisprwave.png" \
-          "$HOME/.local/share/icons/hicolor/64x64/apps/wisprwave.png"
+          "$HOME/.local/share/icons/hicolor/256x256/apps/"wisprwave*.png \
+          "$HOME/.local/share/icons/hicolor/64x64/apps/"wisprwave*.png
+    for size in 22x22 24x24 32x32 48x48; do
+        rm -f "$HOME/.local/share/icons/hicolor/$size/status/"wisprwave-tray*.png \
+              "$HOME/.local/share/icons/hicolor/$size/status/"wisprwave-panel*.png
+    done
     echo "services and desktop entry removed"
 fi
 
