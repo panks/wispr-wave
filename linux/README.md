@@ -25,6 +25,11 @@ on an Intel N150).
 - **Silence trimming:** VAD locates speech in both modes, so decode windows
   skip leading/trailing silence — a think-pause before speaking no longer
   costs decode time.
+- **Honest start cue:** the beep plays only once the mic is actually
+  delivering audio, so "speak after the beep" never loses a word — on any
+  hardware. If your mic auto-suspends and the beep arrives noticeably late
+  after idle breaks, `./install.sh --keep-mic-awake` adds an optional
+  WirePlumber drop-in that lets the mic nap only after 5 idle minutes.
 - **GNOME Shell extension (bundled, optional):** a ~70-line extension gives
   the daemon flicker-free clipboard access from inside the shell. Without it,
   `wl-copy`/`wl-paste` must flash an invisible focus-stealing window per call
@@ -131,6 +136,11 @@ Keyboard).
   user is in the `input` group (`id`)
 - No tray icon: install one of the `gir1.2-*appindicator3*` packages and make
   sure the AppIndicator GNOME extension is enabled (default on Ubuntu)
+- Start beep arrives ~1s late after idle breaks: your mic is being suspended
+  (PipeWire idles sources after 5s; USB mics then also hit kernel
+  autosuspend). No words are lost — the beep waits for real audio — but
+  `./install.sh --keep-mic-awake` makes starts fast again; the journal's
+  "mic live NNNms" lines show your hardware's actual wake time
 - Test the pipeline without a mic: `./wisprwave test-wav path/to/16k-mono.wav`
 
 ## Design notes

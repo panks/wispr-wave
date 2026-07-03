@@ -357,8 +357,14 @@ class Capture:
         self.proc = None
         self.thread = None
         self._stop = threading.Event()
+        # Fired from the reader thread when the first chunk arrives — i.e.
+        # when the mic is REALLY live. The start cue hangs off this so that
+        # "speak after the beep" is reliable even on a cold mic.
+        self.on_first_audio = None
+        self.started_at = None
 
     def start(self):
+        self.started_at = time.monotonic()
         self.proc = subprocess.Popen(
             capture_command(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
         )
@@ -367,10 +373,20 @@ class Capture:
 
     def _reader(self):
         stdout = self.proc.stdout
+        first = True
         while True:
             data = stdout.read(4096)
             if not data:
                 break
+            if first:
+                first = False
+                log.info("mic live %.0fms after capture start",
+                         (time.monotonic() - self.started_at) * 1000)
+                if self.on_first_audio:
+                    try:
+                        self.on_first_audio()
+                    except Exception:
+                        log.exception("on_first_audio callback failed")
             self.q.put(data)
         self.q.put(None)  # sentinel: capture finished
 
@@ -623,10 +639,10 @@ class Daemon:
         self.session = Session(self.engine, single_pass=self.single_pass)
         self.queue = queue_mod.Queue()
         self.capture = Capture(self.queue)
+        self.capture.on_first_audio = lambda: play_sound(SOUND_START)
         self.capture.start()
         self.proc_thread = threading.Thread(target=self._process_loop, daemon=True)
         self.proc_thread.start()
-        play_sound(SOUND_START)
         log.info("recording started")
         return "recording"
 

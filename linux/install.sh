@@ -2,15 +2,25 @@
 # WisprWave Linux installer: venv + models + systemd user service. No sudo —
 # system packages (ydotool, wl-clipboard) are listed in README.md.
 #
-#   ./install.sh                # full install
-#   ./install.sh --no-service   # skip systemd (containers, tests)
+#   ./install.sh                   # full install
+#   ./install.sh --no-service      # skip systemd (containers, tests)
+#   ./install.sh --keep-mic-awake  # also install the WirePlumber drop-in
+#                                  # (mic naps only after 5 min idle; use if
+#                                  # the start beep arrives late after breaks)
 set -euo pipefail
 HERE="$(dirname "$(readlink -f "$0")")"
 DATA="${WISPRWAVE_DATA:-$HOME/.local/share/wisprwave}"
 MODELS="$DATA/models"
 PARAKEET="sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
 NO_SERVICE=0
-[ "${1:-}" = "--no-service" ] && NO_SERVICE=1
+KEEP_MIC_AWAKE=0
+for arg in "$@"; do
+    case "$arg" in
+        --no-service) NO_SERVICE=1 ;;
+        --keep-mic-awake) KEEP_MIC_AWAKE=1 ;;
+        *) echo "unknown option: $arg" >&2; exit 2 ;;
+    esac
+done
 
 mkdir -p "$MODELS"
 
@@ -83,4 +93,18 @@ PYEOF
     echo "Done. Bind a hotkey to: $HERE/wisprwave toggle"
 else
     echo "Done (service skipped). Daemon: $DATA/venv/bin/python $HERE/wisprwave_daemon.py serve"
+fi
+
+# Opt-in: slow-waking mics (typically USB, via kernel autosuspend) lose the
+# race to the first word without a warm-up window. WisprWave's beep waits for
+# real audio either way; this only makes the beep arrive fast during active
+# dictation sessions. System-wide audio policy — hence not a default.
+if [ "$KEEP_MIC_AWAKE" = 1 ]; then
+    WP_DIR="$HOME/.config/wireplumber/wireplumber.conf.d"
+    mkdir -p "$WP_DIR"
+    if ! cmp -s "$HERE/99-wisprwave-mic-no-suspend.conf" "$WP_DIR/99-wisprwave-mic-no-suspend.conf"; then
+        cp "$HERE/99-wisprwave-mic-no-suspend.conf" "$WP_DIR/"
+        systemctl --user restart wireplumber 2>/dev/null || true
+    fi
+    echo "Installed WirePlumber mic keep-awake drop-in (5 min idle timeout)."
 fi

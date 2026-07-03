@@ -24,6 +24,10 @@ if [ "$NO_SERVICE" = 0 ]; then
     rm -f "$HOME/.config/systemd/user/wisprwave.service" \
           "$HOME/.config/systemd/user/wisprwave-tray.service"
     systemctl --user daemon-reload 2>/dev/null || true
+    if [ -f "$HOME/.config/wireplumber/wireplumber.conf.d/99-wisprwave-mic-no-suspend.conf" ]; then
+        rm -f "$HOME/.config/wireplumber/wireplumber.conf.d/99-wisprwave-mic-no-suspend.conf"
+        systemctl --user restart wireplumber 2>/dev/null || true
+    fi
     EXT_UUID="wisprwave@panks.github.io"
     gnome-extensions disable "$EXT_UUID" 2>/dev/null || true
     rm -rf "$HOME/.local/share/gnome-shell/extensions/$EXT_UUID"
