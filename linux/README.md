@@ -20,8 +20,11 @@ on an Intel N150).
   or `wisprwave paste ctrl_v|ctrl_shift_v|shift_insert`; persisted in
   settings.json). Falls back to `ydotool type` if wl-clipboard is missing.
 - **Tray icon:** status-bar mic indicator (red + live timer while recording)
-  with toggle/cancel, a "Streaming mode" switch, a "Paste method" submenu,
-  a "Run on startup" switch, and quit.
+  with toggle/cancel, a "Streaming mode" switch, "Paste method" and
+  "Decoding" submenus, a "Run on startup" switch, and quit.
+- **Decoding choice:** greedy (default) or beam search (`wisprwave decoding
+  beam`) — beam costs ~nothing on this model (measured) and is slightly more
+  accurate on ambiguous audio; switching reloads the model (~3s).
 - **Silence trimming:** VAD locates speech in both modes, so decode windows
   skip leading/trailing silence — a think-pause before speaking no longer
   costs decode time.
@@ -129,6 +132,7 @@ Keyboard).
 | `WISPRWAVE_CONTEXT_SEC` | 2.0 | committed audio re-fed as left context |
 | `WISPRWAVE_MIN_SILENCE` | 0.4 | pause length that closes a phrase |
 | `WISPRWAVE_PASTE` | `shift_insert` | initial default only — a choice made via tray/CLI persists in settings.json and wins |
+| `WISPRWAVE_DECODING` | `greedy` | `beam` = modified beam search (4 paths); initial default only, tray/CLI choice persists |
 | `WISPRWAVE_SOUNDS` | 1 | start/done audio cues (freedesktop theme) |
 
 ## Troubleshooting

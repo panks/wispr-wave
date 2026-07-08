@@ -141,6 +141,26 @@ class Tray:
         self.paste_root = paste_root
         menu.append(paste_root)
 
+        # Decoding strategy. Beam costs ~nothing on this model and is
+        # slightly more accurate on ambiguous audio; switching reloads the
+        # model (~3s, daemon shows "loading").
+        decode_root = Gtk.MenuItem(label="Decoding")
+        decode_menu = Gtk.Menu()
+        self.decoding_items = {}
+        self._decoding_handlers = {}
+        group = None
+        for key, label in [("greedy", "Greedy (default)"),
+                           ("beam", "Beam search (slightly more accurate)")]:
+            item = Gtk.RadioMenuItem.new_with_label_from_widget(group, label)
+            group = group or item
+            self._decoding_handlers[key] = item.connect(
+                "toggled", self.on_decoding_toggled, key)
+            self.decoding_items[key] = item
+            decode_menu.append(item)
+        decode_root.set_submenu(decode_menu)
+        self.decode_root = decode_root
+        menu.append(decode_root)
+
         self.autostart_item = Gtk.CheckMenuItem(label="Run on startup")
         enabled = systemctl("is-enabled", "wisprwave").stdout.strip() == "enabled"
         self.autostart_item.set_active(enabled)
@@ -169,6 +189,10 @@ class Tray:
         if item.get_active():
             daemon_cmd(f"paste {key}")
 
+    def on_decoding_toggled(self, item, key):
+        if item.get_active():
+            daemon_cmd(f"decoding {key}")
+
     def _sync_settings(self, info):
         daemon_up = info is not None
         self.mode_item.set_sensitive(daemon_up)
@@ -188,6 +212,15 @@ class Tray:
             item.set_active(True)
             for k, it in self.paste_items.items():
                 it.handler_unblock(self._paste_handlers[k])
+        self.decode_root.set_sensitive(daemon_up)
+        decoding = info.get("decoding")
+        item = self.decoding_items.get(decoding)
+        if item is not None and not item.get_active():
+            for k, it in self.decoding_items.items():
+                it.handler_block(self._decoding_handlers[k])
+            item.set_active(True)
+            for k, it in self.decoding_items.items():
+                it.handler_unblock(self._decoding_handlers[k])
 
     def on_autostart_toggled(self, item):
         action = "enable" if item.get_active() else "disable"
@@ -227,6 +260,8 @@ class Tray:
                            f"{mins}:{rem:02d}")
         elif info.get("state") == "finalizing":
             self.set_state("finalizing", "Transcribing…")
+        elif info.get("state") == "loading":
+            self.set_state("finalizing", "Loading model…")
         else:
             self.set_state("idle", "Idle — ready to dictate")
         self._sync_settings(info)

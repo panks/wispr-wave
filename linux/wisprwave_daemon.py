@@ -59,6 +59,13 @@ VAD_MODEL = os.environ.get("WISPRWAVE_VAD_MODEL", os.path.join(DATA_DIR, "models
 SAMPLE_RATE = 16000
 NUM_THREADS = int(os.environ.get("WISPRWAVE_THREADS", "4"))
 
+# Decoding: "greedy" or "beam" (modified_beam_search, 4 paths). Measured on
+# this model/CPU beam costs ~nothing (the encoder dominates TDT compute);
+# gains are small on clean audio. Beam is also the prerequisite for hotword
+# biasing. Env is the initial default; tray/CLI choice persists in settings.
+DECODING_DEFAULT = os.environ.get("WISPRWAVE_DECODING", "greedy")
+DECODING_CHOICES = ("greedy", "beam")
+
 # Chunked-commitment tuning. Lower commit threshold = shorter tail at stop
 # (less wait) but more chunk boundaries; 6s keeps the wait ~1-2s while each
 # decode window (chunk + 2s context) stays large enough for good accuracy.
@@ -405,10 +412,11 @@ class Capture:
 # ---------------------------------------------------------------------------
 
 class Engine:
-    def __init__(self):
+    def __init__(self, decoding="greedy"):
         import sherpa_onnx  # lazy: client subcommands don't need it
 
         self._sherpa = sherpa_onnx
+        self.decoding = decoding if decoding in DECODING_CHOICES else "greedy"
         t0 = time.monotonic()
         self.recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
             encoder=os.path.join(MODEL_DIR, "encoder.int8.onnx"),
@@ -418,10 +426,13 @@ class Engine:
             num_threads=NUM_THREADS,
             sample_rate=SAMPLE_RATE,
             feature_dim=80,
-            decoding_method="greedy_search",
+            decoding_method="modified_beam_search" if self.decoding == "beam"
+                            else "greedy_search",
+            max_active_paths=4,
             model_type="nemo_transducer",
         )
-        log.info("model loaded in %.2fs", time.monotonic() - t0)
+        log.info("model loaded in %.2fs (%s decoding)",
+                 time.monotonic() - t0, self.decoding)
 
         # Warmup so the first real dictation doesn't pay one-time graph costs
         import numpy as np
@@ -613,14 +624,16 @@ class Session:
 
 class Daemon:
     def __init__(self):
-        self.engine = Engine()
         settings = load_settings()
         self.single_pass = bool(settings.get("single_pass", False))
         saved_paste = settings.get("paste_method")
         self.paste_method = saved_paste if saved_paste in PASTE_COMBO else PASTE_METHOD
-        log.info("mode: %s, paste: %s",
+        saved_decoding = settings.get("decoding")
+        self.decoding = saved_decoding if saved_decoding in DECODING_CHOICES else DECODING_DEFAULT
+        self.engine = Engine(decoding=self.decoding)
+        log.info("mode: %s, paste: %s, decoding: %s",
                  "single_pass" if self.single_pass else "streaming",
-                 self.paste_method)
+                 self.paste_method, self.decoding)
         self.state = "idle"        # idle | recording | finalizing
         self.lock = threading.Lock()
         self.session = None
@@ -731,6 +744,24 @@ class Daemon:
             elif arg:
                 return f"usage: paste [{'|'.join(PASTE_COMBO)}]"
             return self.paste_method
+        if cmd == "decoding" or cmd.startswith("decoding "):
+            arg = cmd[9:].strip()
+            if arg in DECODING_CHOICES and arg != self.decoding:
+                # Rebuilding the recognizer takes ~2-3s; gate on idle and do
+                # it off the socket thread so the tray keeps polling.
+                with self.lock:
+                    if self.state != "idle":
+                        return f"busy: {self.state}"
+                    self.state = "loading"
+                self.decoding = arg
+                settings = load_settings()
+                settings["decoding"] = arg
+                save_settings(settings)
+                threading.Thread(target=self._rebuild_engine, daemon=True).start()
+                log.info("decoding set to %s (reloading model)", arg)
+            elif arg and arg not in DECODING_CHOICES:
+                return f"usage: decoding [{'|'.join(DECODING_CHOICES)}]"
+            return self.decoding
         if cmd == "info":
             with self.lock:
                 seconds = self.session.seconds if (
@@ -740,11 +771,22 @@ class Daemon:
                 "seconds": round(seconds, 1),
                 "mode": "single" if self.single_pass else "streaming",
                 "paste": self.paste_method,
+                "decoding": self.decoding,
             })
         if cmd == "quit":
             threading.Thread(target=lambda: (time.sleep(0.2), os._exit(0)), daemon=True).start()
             return "bye"
         return f"unknown command: {cmd}"
+
+    def _rebuild_engine(self):
+        try:
+            self.engine = Engine(decoding=self.decoding)
+        except Exception as e:
+            log.exception("engine rebuild failed")
+            notify("WisprWave error", f"Model reload failed: {e}")
+        finally:
+            with self.lock:
+                self.state = "idle"
 
     # -- socket server ------------------------------------------------------
 
@@ -795,9 +837,9 @@ def read_wav_mono16k(path):
     return np.frombuffer(raw, dtype=np.int16)
 
 
-def test_wav(path, single=False):
+def test_wav(path, single=False, beam=False):
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    engine = Engine()
+    engine = Engine(decoding="beam" if beam else DECODING_DEFAULT)
     session = Session(engine, single_pass=single)
     pcm = read_wav_mono16k(path)
     # feed in 100ms slices, as live capture would
@@ -835,8 +877,9 @@ def main():
         Daemon().serve()
         return 0
     if cmd == "test-wav":
-        return test_wav(args[1], single="single" in args[2:])
-    if cmd in ("mode", "paste"):
+        return test_wav(args[1], single="single" in args[2:],
+                        beam="beam" in args[2:])
+    if cmd in ("mode", "paste", "decoding"):
         return client(" ".join(args))
     if cmd in ("toggle", "start", "stop", "cancel", "status", "info", "quit"):
         return client(cmd)
