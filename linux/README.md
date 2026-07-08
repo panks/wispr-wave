@@ -52,7 +52,7 @@ Ubuntu 24.04+ (or similar) with GNOME on Wayland, systemd user session,
 |---|---|---|
 | `ydotool` | sends the paste keystroke through kernel uinput | required |
 | `wl-clipboard` | clipboard save/set/restore around the paste | strongly recommended |
-| `gir1.2-ayatanaappindicator3-0.1` | tray icon bindings for Python | optional — tray only; the legacy `gir1.2-appindicator3-0.1` also works and may already be present |
+| `python3-gi` + `gir1.2-ayatanaappindicator3-0.1` | tray icon bindings for Python | optional — tray only; preinstalled on GNOME Ubuntu, needed explicitly on Kubuntu/KDE; the legacy `gir1.2-appindicator3-0.1` also works |
 | `alsa-utils` *or* PipeWire tools | mic capture (`arecord`/`pw-record`/`parec`, first found wins) | preinstalled on Ubuntu |
 
 Everything else is user-local: `install.sh` bootstraps
@@ -65,7 +65,7 @@ Nothing outside `~/.local` and `~/.config` is written without sudo.
 
 ```bash
 # 1. System packages + uinput access (the only sudo steps)
-sudo apt install ydotool wl-clipboard gir1.2-ayatanaappindicator3-0.1
+sudo apt install ydotool wl-clipboard python3-gi gir1.2-ayatanaappindicator3-0.1
 sudo usermod -aG input $USER        # uinput permission; log out/in (or reboot)
 systemctl --user enable --now ydotool
 
@@ -91,6 +91,12 @@ shortcut whose command is:
 Press once to start recording, again to stop; the text pastes into whatever
 app has focus. Also available: `wisprwave cancel` (discard the current
 recording), `wisprwave status`, and the same actions from the tray menu.
+
+**KDE Plasma (Kubuntu) works too:** the tray uses KDE's native StatusNotifier
+support, KWin implements the clipboard protocol wl-clipboard needs (no
+flicker even without the GNOME extension, which simply stays inert there),
+and the hotkey binds via System Settings → Shortcuts → Add New → Command.
+Watch for stray whitespace when pasting the command into the shortcut dialog.
 "Run on startup" in the tray menu controls whether both services start at
 login (they do after install).
 

@@ -817,7 +817,9 @@ def test_wav(path, single=False):
 
 
 def main():
-    args = sys.argv[1:]
+    # Strip stray whitespace from args: hotkey dialogs (e.g. KDE's command
+    # shortcuts) can smuggle a pasted trailing newline into argv.
+    args = [a.strip() for a in sys.argv[1:] if a.strip()]
     if not args:
         print(__doc__)
         return 2

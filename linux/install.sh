@@ -32,15 +32,22 @@ fi
 [ -d "$DATA/venv" ] || uv venv "$DATA/venv"
 uv pip install --python "$DATA/venv/bin/python" sherpa-onnx numpy
 
-# 2. Models (downloaded only if missing)
+# 2. Models (downloaded only if missing). Atomic: extract/download to a temp
+# path and rename, so an interrupted first run can't leave a half-written
+# model that later runs' existence checks would mistake for a good one.
+rm -rf "$MODELS"/.download-*
 if [ ! -d "$MODELS/$PARAKEET" ]; then
-    echo "Downloading Parakeet model (~640MB)..."
+    echo "Downloading Parakeet model (~460MB)..."
+    TMP_EXTRACT=$(mktemp -d "$MODELS/.download-XXXXXX")
     curl -L "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$PARAKEET.tar.bz2" \
-        | python3 -c "import tarfile,sys; tarfile.open(fileobj=sys.stdin.buffer, mode='r|bz2').extractall('$MODELS', filter='data')"
+        | python3 -c "import tarfile,sys; tarfile.open(fileobj=sys.stdin.buffer, mode='r|bz2').extractall('$TMP_EXTRACT', filter='data')"
+    mv "$TMP_EXTRACT/$PARAKEET" "$MODELS/$PARAKEET"
+    rm -rf "$TMP_EXTRACT"
 fi
 if [ ! -f "$MODELS/silero_vad.onnx" ]; then
-    curl -L -o "$MODELS/silero_vad.onnx" \
+    curl -L -o "$MODELS/silero_vad.onnx.part" \
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
+    mv "$MODELS/silero_vad.onnx.part" "$MODELS/silero_vad.onnx"
 fi
 
 # 3. systemd user services + desktop integration (paths rewritten to this checkout)
@@ -66,7 +73,9 @@ if [ "$NO_SERVICE" = 0 ]; then
     mkdir -p "$EXT_DIR"
     cp "$HERE/gnome-extension/$EXT_UUID/"* "$EXT_DIR/"
     gnome-extensions enable "$EXT_UUID" 2>/dev/null || true
-    python3 - "$EXT_UUID" <<'PYEOF'
+    # gsettings is GNOME tooling; skip enabling on other desktops (KDE etc.),
+    # where the extension is inert and the daemon uses wl-clipboard anyway
+    command -v gsettings >/dev/null && python3 - "$EXT_UUID" <<'PYEOF' || true
 import ast, subprocess, sys
 uuid = sys.argv[1]
 cur = subprocess.run(["gsettings", "get", "org.gnome.shell", "enabled-extensions"],
@@ -86,8 +95,8 @@ PYEOF
     || python3 -c "import gi; gi.require_version('AppIndicator3','0.1')" 2>/dev/null; then
         systemctl --user enable --now wisprwave-tray
     else
-        echo "NOTE: tray icon skipped — install its library first:"
-        echo "        sudo apt install gir1.2-ayatanaappindicator3-0.1"
+        echo "NOTE: tray icon skipped — install its libraries first:"
+        echo "        sudo apt install python3-gi gir1.2-ayatanaappindicator3-0.1"
         echo "      then run: systemctl --user enable --now wisprwave-tray"
     fi
     echo "Done. Bind a hotkey to: $HERE/wisprwave toggle"
