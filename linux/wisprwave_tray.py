@@ -120,17 +120,25 @@ class Tray:
         self._mode_handler = self.mode_item.connect("toggled", self.on_mode_toggled)
         menu.append(self.mode_item)
 
-        # Paste keystroke. Shift+Insert works in terminals AND regular apps
-        # (the daemon fills both clipboard and primary selection for it);
-        # the others are escape hatches for apps that don't honor it.
+        # Paste keystroke. On GNOME, Shift+Insert works in terminals AND regular
+        # apps (the daemon fills both clipboard and primary selection for it);
+        # the others are escape hatches for apps that don't honor it. On KDE the
+        # flash-free Klipper path drives only the clipboard, so Shift+Insert has
+        # no working semantics there — offer just the two clipboard combos:
+        # Ctrl+V for GUI apps, Ctrl+Shift+V for terminals like Konsole.
+        if "kde" in os.environ.get("XDG_CURRENT_DESKTOP", "").lower():
+            paste_options = [("ctrl_v", "Ctrl+V (apps)"),
+                             ("ctrl_shift_v", "Ctrl+Shift+V (terminals)")]
+        else:
+            paste_options = [("shift_insert", "Shift+Insert (universal)"),
+                             ("ctrl_v", "Ctrl+V"),
+                             ("ctrl_shift_v", "Ctrl+Shift+V (terminals)")]
         paste_root = Gtk.MenuItem(label="Paste method")
         paste_menu = Gtk.Menu()
         self.paste_items = {}
         self._paste_handlers = {}
         group = None
-        for key, label in [("shift_insert", "Shift+Insert (universal)"),
-                           ("ctrl_v", "Ctrl+V"),
-                           ("ctrl_shift_v", "Ctrl+Shift+V (terminals)")]:
+        for key, label in paste_options:
             item = Gtk.RadioMenuItem.new_with_label_from_widget(group, label)
             group = group or item
             self._paste_handlers[key] = item.connect(

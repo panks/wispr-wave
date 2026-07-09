@@ -96,12 +96,16 @@ PASTE_COMBO = {
     "ctrl_v": ["29:1", "47:1", "47:0", "29:0"],
     "ctrl_shift_v": ["29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
 }
-# shift_insert is the default: GTK/Qt widgets, browsers, AND terminals all
-# honor it, so no per-app combo switching is needed. Some terminals wire it
-# to the primary selection rather than the clipboard, so inject_text() sets
-# both buffers. Env var is the initial default; a choice made via the tray
-# or `wisprwave paste ...` persists in settings.json and wins.
-PASTE_METHOD = os.environ.get("WISPRWAVE_PASTE", "shift_insert")
+# Default paste combo, chosen per desktop. On GNOME (and the wl-clipboard
+# fallback) shift_insert is universal: GTK/Qt widgets, browsers, AND terminals
+# honor it, and inject_text() fills both the clipboard and the primary
+# selection to cover terminals that wire it to the selection. On KDE the
+# flash-free Klipper path drives only the clipboard, so Ctrl+V is the working
+# default for GUI apps; terminals (Konsole's Ctrl+V isn't paste) need
+# Ctrl+Shift+V, switched via the tray. Env var is the initial default; a choice
+# made via the tray or `wisprwave paste ...` persists in settings.json and wins.
+_IS_KDE = "kde" in os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+PASTE_METHOD = os.environ.get("WISPRWAVE_PASTE", "ctrl_v" if _IS_KDE else "shift_insert")
 PASTE_DELAY = 0.06
 CLIPBOARD_RESTORE_DELAY = 0.5
 
@@ -224,12 +228,16 @@ def normalize_join(parts):
 # ydotool-type fallback when wl-clipboard is not installed.
 # ---------------------------------------------------------------------------
 
-# --- GNOME Shell extension bridge (see gnome-extension/) ------------------
-# The extension sets/reads the clipboard from inside the shell — no phantom
-# windows, no dock flicker. wl-clipboard has to create an invisible focused
-# window per call because Mutter offers no data-control protocol. Probed per
-# injection; everything falls back to wl-clipboard when it's absent.
+# Why bridges exist: with no data-control protocol both sides agree on,
+# wl-clipboard has to create an invisible *focused* toplevel per call to own
+# the selection — that focus steal is the on-screen flash. GNOME/Mutter offers
+# no data-control protocol at all; KWin 6.6 offers only ext-data-control-v1,
+# which wl-clipboard < 2.3.0 doesn't speak. Both compositors expose a
+# clipboard API that runs inside the shell (no phantom window, no flash), so
+# we prefer those when present and fall back to wl-clipboard otherwise. The
+# backend is chosen per injection: "ext" (GNOME), "klipper" (KDE), or None.
 
+# --- GNOME Shell extension bridge (see gnome-extension/) ------------------
 EXT_BUS = "io.github.panks.WisprWave"
 EXT_PATH = "/io/github/panks/WisprWave"
 
@@ -256,31 +264,65 @@ def _ext_probe():
         return ""
 
 
-def _read_buffer(primary=False, use_ext=False):
-    if use_ext:
-        out = _ext_call("GetClipboard", "true" if primary else "false")
-        if out is None:
-            return None
-        try:
-            val = ast.literal_eval(out.strip())
-            text = val[0] if isinstance(val, tuple) else ""
-            return text.encode() if text else None
-        except (ValueError, SyntaxError):
-            return None
-    args = ["wl-paste", "--no-newline"] + (["--primary"] if primary else [])
+# --- KDE Klipper bridge ---------------------------------------------------
+# Klipper is Plasma's clipboard manager, living inside plasmashell. Setting
+# the clipboard through its D-Bus API needs no window of our own, so it never
+# steals focus — no flash. It manages the regular clipboard only (no primary
+# selection). Probed per injection; absent outside a running Plasma session.
+KLIPPER_BUS = "org.kde.klipper"
+KLIPPER_PATH = "/klipper"
+KLIPPER_IFACE = "org.kde.klipper.klipper"
+
+
+def _klipper_call(method, *args):
+    cmd = ["gdbus", "call", "--session", "--dest", KLIPPER_BUS,
+           "--object-path", KLIPPER_PATH, "--method", f"{KLIPPER_IFACE}.{method}", *args]
     try:
-        r = subprocess.run(args, capture_output=True, timeout=2)
-        if r.returncode == 0:
-            return r.stdout
+        r = subprocess.run(cmd, capture_output=True, timeout=2)
     except (subprocess.TimeoutExpired, OSError):
-        pass
-    return None
+        return None
+    return r.stdout.decode() if r.returncode == 0 else None
 
 
-def _write_buffer(data, primary=False, use_ext=False):
-    if use_ext:
+def _klipper_available():
+    """True if Klipper answers on the session bus (i.e. a live Plasma session)."""
+    return _klipper_call("getClipboardContents") is not None
+
+
+def _read_buffer(primary=False, backend=None):
+    if backend == "ext":
+        out = _ext_call("GetClipboard", "true" if primary else "false")
+    elif backend == "klipper":
+        # Klipper has no primary-selection API; the klipper path never sets it.
+        out = None if primary else _klipper_call("getClipboardContents")
+    else:
+        args = ["wl-paste", "--no-newline"] + (["--primary"] if primary else [])
+        try:
+            r = subprocess.run(args, capture_output=True, timeout=2)
+            if r.returncode == 0:
+                return r.stdout
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+        return None
+    if out is None:
+        return None
+    try:
+        val = ast.literal_eval(out.strip())
+        text = val[0] if isinstance(val, tuple) else ""
+        return text.encode() if text else None
+    except (ValueError, SyntaxError):
+        return None
+
+
+def _write_buffer(data, primary=False, backend=None):
+    if backend == "ext":
         text = (data or b"").decode(errors="replace")
         _ext_call("SetClipboard", text, "true" if primary else "false")
+        return
+    if backend == "klipper":
+        if primary:
+            return  # Klipper drives the regular clipboard only
+        _klipper_call("setClipboardContents", (data or b"").decode(errors="replace"))
         return
     args = ["wl-copy"] + (["--primary"] if primary else [])
     if data is None:
@@ -294,15 +336,30 @@ def inject_text(text, method=None):
         return "nothing to inject"
 
     method = method if method in PASTE_COMBO else PASTE_METHOD
-    combo = PASTE_COMBO.get(method, PASTE_COMBO["shift_insert"])
     have_clipboard = shutil.which("wl-copy") and shutil.which("wl-paste")
 
+    # Pick a flash-free clipboard backend, else fall back to wl-clipboard.
     focused = _ext_probe()
-    use_ext = focused is not None
-    if use_ext:
+    if focused is not None:
+        backend = "ext"
         log.info("clipboard via shell extension (focused: %s)", focused or "?")
+    elif _klipper_available():
+        backend = "klipper"
+        # Ctrl+V is the KDE default (see PASTE_METHOD). This coercion is a
+        # safety net for a shift_insert carried in via WISPRWAVE_PASTE or a
+        # config synced from GNOME: Klipper can't drive the primary selection
+        # (and wl-copy --primary would reintroduce the flash), so shift_insert
+        # would otherwise paste a stale selection into terminals. Paste from
+        # the clipboard with Ctrl+V instead.
+        if method == "shift_insert":
+            method = "ctrl_v"
+        log.info("clipboard via Klipper D-Bus (KDE)")
+    else:
+        backend = None
 
-    if not use_ext and not have_clipboard:
+    combo = PASTE_COMBO.get(method, PASTE_COMBO["shift_insert"])
+
+    if backend is None and not have_clipboard:
         # Fallback: type directly through uinput. Slower and ASCII-safest;
         # install wl-clipboard for the paste path.
         log.warning("wl-clipboard not found; falling back to `ydotool type`")
@@ -312,16 +369,17 @@ def inject_text(text, method=None):
 
     # Terminals bind Shift+Insert to either the clipboard or the primary
     # selection depending on the emulator — feed both so it never matters.
+    # (Skipped on the klipper backend, which forces Ctrl+V above.)
     use_primary = method == "shift_insert"
 
     # 1. Save current buffers (text only; non-text content is not restored)
-    old_clip = _read_buffer(use_ext=use_ext)
-    old_primary = _read_buffer(primary=True, use_ext=use_ext) if use_primary else None
+    old_clip = _read_buffer(backend=backend)
+    old_primary = _read_buffer(primary=True, backend=backend) if use_primary else None
 
     # 2. Set the transcript
-    _write_buffer(text.encode(), use_ext=use_ext)
+    _write_buffer(text.encode(), backend=backend)
     if use_primary:
-        _write_buffer(text.encode(), primary=True, use_ext=use_ext)
+        _write_buffer(text.encode(), primary=True, backend=backend)
     time.sleep(PASTE_DELAY)
 
     # 3. Paste keystroke through uinput (portal-free, survives suspend)
@@ -331,10 +389,10 @@ def inject_text(text, method=None):
 
     # 4. Restore previous buffers after the target app has read the paste
     time.sleep(CLIPBOARD_RESTORE_DELAY)
-    _write_buffer(old_clip, use_ext=use_ext)
+    _write_buffer(old_clip, backend=backend)
     if use_primary:
-        _write_buffer(old_primary, primary=True, use_ext=use_ext)
-    return f"pasted via {method}" + (" [ext]" if use_ext else " [wl-clipboard]")
+        _write_buffer(old_primary, primary=True, backend=backend)
+    return f"pasted via {method} [{backend or 'wl-clipboard'}]"
 
 
 # ---------------------------------------------------------------------------

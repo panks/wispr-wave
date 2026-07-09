@@ -96,12 +96,23 @@ app has focus. Also available: `wisprwave cancel` (discard the current
 recording), `wisprwave status`, and the same actions from the tray menu.
 
 **KDE Plasma (Kubuntu) works too:** the tray uses KDE's native StatusNotifier
-support, KWin implements the clipboard protocol wl-clipboard needs (no
-flicker even without the GNOME extension, which simply stays inert there),
-and the hotkey binds via System Settings → Shortcuts → Add New → Command.
-Watch for stray whitespace when pasting the command into the shortcut dialog.
-"Run on startup" in the tray menu controls whether both services start at
-login (they do after install).
+support, and the hotkey binds via System Settings → Shortcuts → Add New →
+Command. Watch for stray whitespace when pasting the command into the shortcut
+dialog. "Run on startup" in the tray menu controls whether both services start
+at login (they do after install).
+
+For flicker-free clipboard access, the daemon sets the clipboard through KDE's
+Klipper over D-Bus (the GNOME extension stays inert on KDE). Plain
+`wl-copy`/`wl-paste` would flash a focus-stealing window per call unless you
+have `wl-clipboard` ≥ 2.3.0, since KWin 6.6 offers only the `ext-data-control`
+protocol that older `wl-clipboard` doesn't speak.
+
+Because Klipper drives only the clipboard (not the primary selection), the KDE
+default paste is **Ctrl+V**, which works in GUI apps. Terminals like Konsole
+bind Ctrl+V to something else — when dictating into one, switch the tray's
+**Paste method → Ctrl+Shift+V (terminals)** (or `wisprwave paste ctrl_shift_v`).
+KWin Wayland exposes no clean way to detect the focused app, so this is a
+manual switch by design; the choice persists in settings.json.
 
 ## Updating
 
