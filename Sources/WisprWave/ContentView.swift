@@ -147,6 +147,7 @@ struct ContentView: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                     .font(.caption)
+                    .fixedSize() // Size to content instead of filling the row
                     .disabled(!appState.isAutoStopEnabled || appState.isLegacyMode)
 
                     Text("of silence")
