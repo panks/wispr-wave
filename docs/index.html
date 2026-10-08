@@ -6,20 +6,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <!-- SEO Meta Tags -->
-    <title>WisprWave - Free Offline AI Speech to Text for macOS (Whisper Powered)</title>
+    <title>WisprWave - Free Offline AI Speech to Text for macOS (Whisper &amp; Parakeet)</title>
     <meta name="description"
-        content="The best free offline speech-to-text app for macOS. Powered by OpenAI Whisper. Fast, private, and lightweight AI transcription for Apple Silicon.">
+        content="The best free offline speech-to-text app for macOS. Powered by OpenAI Whisper and NVIDIA Parakeet. Fast, private, and lightweight AI transcription for Apple Silicon.">
     <meta name="keywords"
-        content="AI speech to text, whisper speech to text, speech to text Mac, offline transcription, free mac dictation, openai whisper mac, voice to text app">
+        content="AI speech to text, whisper speech to text, speech to text Mac, offline transcription, free mac dictation, openai whisper mac, parakeet speech to text, nvidia parakeet mac, voice to text app">
 
     <!-- Open Graph / Social -->
     <meta property="og:title" content="WisprWave - Supercharged Speech to Text for Mac">
     <meta property="og:description"
-        content="Transcribe everything, share nothing. The blazing fast, offline, and free Whisper-powered dictation tool for macOS.">
+        content="Transcribe everything, share nothing. The blazing fast, offline, and free dictation tool for macOS, powered by Whisper and Parakeet.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://panks.github.io/wispr-wave/">
 
-    <link rel="stylesheet" href="style.css?v=1.1">
+    <link rel="stylesheet" href="style.css?v=1.2">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Fira+Code&display=swap"
         rel="stylesheet">
 </head>
@@ -42,7 +42,7 @@
         <div class="container">
             <h1>Supercharged AI Speech to Text for Mac</h1>
             <p>The blazing fast, offline, and <strong>free</strong> dictation tool for macOS. <br>Powered by
-                <strong>OpenAI Whisper</strong> models for unmatched accuracy.
+                <strong>OpenAI Whisper</strong> and <strong>NVIDIA Parakeet</strong> models for unmatched accuracy.
             </p>
 
             <div class="btn-group">
@@ -76,7 +76,7 @@
                 <div class="card">
                     <div class="card-icon">⚡️</div>
                     <h3>Instant Transcription</h3>
-                    <p>Powered by WhisperKit. Runs entirely on your Neural Engine. 5x faster than real-time.</p>
+                    <p>Powered by WhisperKit and FluidAudio. Runs entirely on your Neural Engine. 5x faster than real-time.</p>
                 </div>
                 <div class="card">
                     <div class="card-icon">🔒</div>
@@ -87,6 +87,30 @@
                     <div class="card-icon">⌨️</div>
                     <h3>Inject Anywhere</h3>
                     <p>Dictate directly into VS Code, Slack, Obsidian, or any active window. Just talk.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="modes-section" id="engines">
+        <div class="container">
+            <div style="text-align: center; margin-bottom: 40px;">
+                <h2>Two Engines, One Switch</h2>
+                <p>Pick your speech engine with the Whisper | Parakeet switch in the menu bar.</p>
+            </div>
+
+            <div class="box-container">
+                <div class="feature-box whisper">
+                    <span class="feature-tag tag-whisper">DEFAULT</span>
+                    <h3>🎙️ Whisper</h3>
+                    <p>OpenAI's Whisper models, from Tiny to Large-v3, in dozens of languages. The only engine
+                        with Boost Mode.</p>
+                </div>
+                <div class="feature-box parakeet">
+                    <span class="feature-tag tag-parakeet">NEW</span>
+                    <h3>🦜 Parakeet</h3>
+                    <p>NVIDIA Parakeet TDT: v2 for the most accurate English, v3 for 25 European languages.
+                        Transcribes 30 seconds of speech in a fraction of a second.</p>
                 </div>
             </div>
         </div>
@@ -104,7 +128,7 @@
                     <span class="feature-tag tag-boost">DEFAULT</span>
                     <h3>🚀 Boost Mode</h3>
                     <p>Uses intelligent background streaming to transcribe audio in chunks while you speak. The moment
-                        you stop, your text is ready.</p>
+                        you stop, your text is ready. Whisper only: Parakeet doesn't need it.</p>
                 </div>
                 <div class="feature-box legacy">
                     <span class="feature-tag tag-legacy">COMPATIBILITY</span>

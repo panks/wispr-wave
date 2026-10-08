@@ -254,6 +254,14 @@ header {
     background: linear-gradient(90deg, #2ed573, #7bed9f);
 }
 
+.feature-box.whisper::before {
+    background: linear-gradient(90deg, #1e90ff, #70a1ff);
+}
+
+.feature-box.parakeet::before {
+    background: linear-gradient(90deg, #a55eea, #d6a2e8);
+}
+
 .feature-tag {
     font-size: 0.8rem;
     text-transform: uppercase;
@@ -272,6 +280,16 @@ header {
 .tag-legacy {
     background: rgba(46, 213, 115, 0.2);
     color: #2ed573;
+}
+
+.tag-whisper {
+    background: rgba(30, 144, 255, 0.2);
+    color: #70a1ff;
+}
+
+.tag-parakeet {
+    background: rgba(165, 94, 234, 0.2);
+    color: #d6a2e8;
 }
 
 /* How It Works Steps */
