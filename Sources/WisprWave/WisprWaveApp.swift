@@ -10,10 +10,6 @@ struct WisprWaveApp: App {
             ContentView()
         }
         .menuBarExtraStyle(.window)
-        
-        Settings {
-            SettingsView(appState: AppState.shared)
-        }
     }
 }
 
