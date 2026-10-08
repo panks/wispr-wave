@@ -18,7 +18,11 @@ let package = Package(
             url: "https://github.com/panks/argmax-oss-swift",
             exact: "1.0.0"
         ),
-        .package(url: "https://github.com/soffes/HotKey", from: "0.2.0")
+        .package(url: "https://github.com/soffes/HotKey", from: "0.2.0"),
+        // Parakeet speech recognition. Pinned exactly because FluidAudio's API moves fast
+        // between releases (and its README lags the source); upgrade deliberately after
+        // re-checking the AsrManager / AsrModels calls ParakeetEngine relies on.
+        .package(url: "https://github.com/FluidInference/FluidAudio", exact: "0.17.4")
     ],
     targets: [
         .executableTarget(
@@ -28,7 +32,8 @@ let package = Package(
                 // library product is still named "WhisperKit" — so our import sites are
                 // unchanged; only the `package:` parameter here moves.
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
-                "HotKey"
+                "HotKey",
+                .product(name: "FluidAudio", package: "FluidAudio")
             ],
             resources: [
                 .process("Resources")
