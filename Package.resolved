@@ -1,5 +1,5 @@
 {
-  "originHash" : "b9ab2834074b3a35f2f4e83812a5fe6666ee20a4ccac49a4effd87b208a4df09",
+  "originHash" : "9540991ffc2621b6ba689c615500f605387eb901dc6e485c206bb360262c1fb2",
   "pins" : [
     {
       "identity" : "argmax-oss-swift",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-argument-parser.git",
       "state" : {
-        "revision" : "ca37474853a4b5f59a22c74bfdd449b1f6bc4cc2",
-        "version" : "1.8.1"
+        "revision" : "6a52f3251125d74daf04fcbd5e6f08a75d074382",
+        "version" : "1.8.2"
       }
     }
   ],
