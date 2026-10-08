@@ -82,7 +82,7 @@ struct ContentView: View {
             // --- Model List ---
             ScrollView {
                 VStack(spacing: 8) {
-                    ForEach(appState.modelManager.supportedModels) { model in
+                    ForEach(appState.modelManager.visibleModels) { model in
                         ModelRow(model: model, appState: appState)
                     }
                 }

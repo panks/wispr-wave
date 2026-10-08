@@ -1,14 +1,35 @@
 import Foundation
 
-/// Configuration for supported Whisper models
+/// Catalog of supported models for every speech engine
 struct ModelsConfig {
     struct ModelInfo: Identifiable, Equatable, Codable {
         let id: String
         let name: String
-        let url: String  // HuggingFace tree URL
+        let engine: SpeechEngine
+        /// HuggingFace tree URL. Whisper only; Parakeet models are fetched by FluidAudio,
+        /// which picks the version from the id (see ParakeetEngine).
+        let url: String?
+
+        init(id: String, name: String, engine: SpeechEngine = .whisper, url: String? = nil) {
+            self.id = id
+            self.name = name
+            self.engine = engine
+            self.url = url
+        }
     }
-    
+
+    /// Looks up a catalog entry by id.
+    static func model(id: String) -> ModelInfo? {
+        supportedModels.first(where: { $0.id == id })
+    }
+
+    /// The catalog entries for one engine, in catalog order.
+    static func models(for engine: SpeechEngine) -> [ModelInfo] {
+        supportedModels.filter { $0.engine == engine }
+    }
+
     static let supportedModels: [ModelInfo] = [
+        // --- Whisper (WhisperKit) ---
         ModelInfo(
             id: "openai_whisper-large-v3-v20240930_547MB",
             name: "Whisper Large V3 547 New",
@@ -103,6 +124,18 @@ struct ModelsConfig {
             id: "openai_whisper-tiny",
             name: "Whisper Tiny",
             url: "https://huggingface.co/plive/whisperkit-coreml/tree/main/openai_whisper-tiny"
+        ),
+
+        // --- Parakeet (FluidAudio) ---
+        ModelInfo(
+            id: "parakeet-tdt-0.6b-v2",
+            name: "Parakeet v2 (English)",
+            engine: .parakeet
+        ),
+        ModelInfo(
+            id: "parakeet-tdt-0.6b-v3",
+            name: "Parakeet v3 (25 languages)",
+            engine: .parakeet
         )
     ]
 }

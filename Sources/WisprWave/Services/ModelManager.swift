@@ -9,12 +9,30 @@ class ModelManager: ObservableObject {
     @Published var downloadStatus: String = "Initializing..."
     @Published var currentModelName: String? = nil
     @Published var isModelLoaded = false
+    /// True while `loadModel(name:)` or `switchEngine(to:)` is swapping models.
+    @Published private(set) var isLoadingModel = false
+    /// Id of the model whose last load failed; cleared on the next load attempt or engine switch.
+    @Published private(set) var loadErrorModelName: String? = nil
+    /// The engine whose models the popup shows and which loads at launch.
+    @Published private(set) var activeEngine: SpeechEngine {
+        didSet { UserDefaults.standard.set(activeEngine.rawValue, forKey: Self.activeEngineKey) }
+    }
     
-    // UserDefaults key
-    private let lastUsedModelKey = "WisprWave.LastUsedModel"
+    // UserDefaults keys
+    private static let activeEngineKey = "WisprWave.ActiveEngine"
+    /// Pre-Parakeet single last-used key; only read by the migration in init.
+    private static let legacyLastUsedModelKey = "WisprWave.LastUsedModel"
+    private static func lastUsedModelKey(for engine: SpeechEngine) -> String {
+        "WisprWave.LastUsedModel.\(engine.rawValue)"
+    }
     
-    // Use models from config
+    // Use models from config (all engines)
     let supportedModels = ModelsConfig.supportedModels
+    
+    /// The active engine's models, which is what the popup lists.
+    var visibleModels: [ModelsConfig.ModelInfo] {
+        ModelsConfig.models(for: activeEngine)
+    }
     
     @Published var downloadedModels: Set<String> = []
     
@@ -23,6 +41,18 @@ class ModelManager: ObservableObject {
     private let modelStoragePath: URL
     
     init() {
+        let defaults = UserDefaults.standard
+        self.activeEngine = defaults.string(forKey: Self.activeEngineKey).flatMap(SpeechEngine.init(rawValue:)) ?? .whisper
+        
+        // One-time migration: the single last-used key becomes the Whisper one.
+        let whisperKey = Self.lastUsedModelKey(for: .whisper)
+        if let legacy = defaults.string(forKey: Self.legacyLastUsedModelKey) {
+            if defaults.string(forKey: whisperKey) == nil {
+                defaults.set(legacy, forKey: whisperKey)
+                defaults.removeObject(forKey: Self.legacyLastUsedModelKey)
+            }
+        }
+        
         // Set up the model storage path
         if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             self.modelStoragePath = appSupport.appendingPathComponent("WisprWave/Models")
@@ -58,8 +88,19 @@ class ModelManager: ObservableObject {
         }
     }
     
-    // Load a specific model (User clicked "Turn On")
+    // Load a specific model (User clicked "Turn On", or an engine switch)
+    //
+    // Unloads whatever is loaded first, so two models never sit in memory at once.
     func loadModel(name: String) async {
+        guard let modelInfo = ModelsConfig.model(id: name) else {
+            print("Model \(name) is not in the catalog.")
+            return
+        }
+        guard !isLoadingModel else {
+            print("Ignoring load of \(name): another load is in progress.")
+            return
+        }
+        
         // If already loaded, do nothing
         if currentModelName == name && isModelLoaded { return }
         
@@ -68,40 +109,81 @@ class ModelManager: ObservableObject {
             return
         }
         
-        // Update UI immediately
+        isLoadingModel = true
+        defer { isLoadingModel = false }
+        loadErrorModelName = nil
+        
+        // Update UI immediately (status reads "Loading <name>..." during the unload too)
         self.currentModelName = name
         self.isModelLoaded = false
         self.isDownloading = false
         
+        await unloadEngine()
+        
         do {
-            print("Loading WhisperKit with model: \(name)")
-            // On failure the previous engine (if any) stays assigned, as before.
-            let loaded = try await WhisperEngine(modelName: name, modelStoragePath: modelStoragePath)
+            let loaded: TranscriptionEngine
+            switch modelInfo.engine {
+            case .whisper:
+                print("Loading WhisperKit with model: \(name)")
+                loaded = try await WhisperEngine(modelName: name, modelStoragePath: modelStoragePath)
+            case .parakeet:
+                throw LoadError.engineUnavailable(.parakeet)
+            }
             
             self.engine = loaded
             self.isModelLoaded = true  // Update on main actor
             
-            // Save as last used model
-            UserDefaults.standard.set(name, forKey: lastUsedModelKey)
+            // Save as that engine's last used model, and keep the active engine in step
+            UserDefaults.standard.set(name, forKey: Self.lastUsedModelKey(for: modelInfo.engine))
+            if activeEngine != modelInfo.engine {
+                activeEngine = modelInfo.engine
+            }
             
-            print("WhisperKit loaded successfully")
+            print("\(modelInfo.engine.rawValue) model \(name) loaded successfully")
         } catch {
             print("Error loading model: \(error)")
             self.currentModelName = nil // Load failed
             self.isModelLoaded = false
+            self.loadErrorModelName = name
+            UserDefaults.standard.removeObject(forKey: Self.lastUsedModelKey(for: modelInfo.engine))
         }
     }
     
-    // Auto-load last used model if available
+    // Auto-load the active engine's last used model if available
     func loadLastUsedModel() async {
-        guard let lastModel = UserDefaults.standard.string(forKey: lastUsedModelKey),
+        guard let lastModel = UserDefaults.standard.string(forKey: Self.lastUsedModelKey(for: activeEngine)),
               downloadedModels.contains(lastModel) else {
-            print("No last used model to load")
+            print("No last used \(activeEngine.rawValue) model to load")
             return
         }
         
         print("Auto-loading last used model: \(lastModel)")
         await loadModel(name: lastModel)
+    }
+    
+    /// Makes `newEngine` active: unloads the current model, then loads that engine's
+    /// last-used model if it is downloaded, else stays unloaded.
+    ///
+    /// Ignored while downloading or loading. ModelManager can't see dictation state, so
+    /// callers must not call this while AppState `isListening` or `isProcessing`.
+    func switchEngine(to newEngine: SpeechEngine) async {
+        guard newEngine != activeEngine, !isDownloading, !isLoadingModel else { return }
+        
+        print("Switching engine: \(activeEngine.rawValue) -> \(newEngine.rawValue)")
+        activeEngine = newEngine
+        loadErrorModelName = nil
+        
+        // Hold the loading flag while unloading so no power press slips in.
+        isLoadingModel = true
+        await unloadModel()
+        isLoadingModel = false
+        
+        if let lastModel = UserDefaults.standard.string(forKey: Self.lastUsedModelKey(for: newEngine)),
+           downloadedModels.contains(lastModel) {
+            await loadModel(name: lastModel)
+        } else {
+            print("No downloaded \(newEngine.rawValue) model to load")
+        }
     }
     
     // Download a specific model (User clicked "Download")
@@ -114,13 +196,19 @@ class ModelManager: ObservableObject {
         guard !isDownloading else { return }
 
         // Find model info
-        guard let modelInfo = supportedModels.first(where: { $0.id == modelId }) else { return }
+        guard let modelInfo = ModelsConfig.model(id: modelId) else { return }
+
+        // Parakeet downloads arrive with ParakeetEngine.
+        guard modelInfo.engine == .whisper, let urlString = modelInfo.url else {
+            print("Download of \(modelId) (\(modelInfo.engine.rawValue)) is not supported yet")
+            return
+        }
 
         // Parse HuggingFace URL
         // Format: https://huggingface.co/{repo}/tree/{branch}/{path}
         // Example: https://huggingface.co/plive/whisperkit-coreml/tree/main/openai_whisper-large-v3
-        guard let url = URL(string: modelInfo.url) else {
-            print("Error downloading: invalid URL \(modelInfo.url)")
+        guard let url = URL(string: urlString) else {
+            print("Error downloading: invalid URL \(urlString)")
             self.downloadStatus = "Invalid model URL"
             return
         }
@@ -128,7 +216,7 @@ class ModelManager: ObservableObject {
         let pathComponents = url.pathComponents
         // pathComponents: ["", "plive", "whisperkit-coreml", "tree", "main", "openai_whisper-large-v3"]
         guard pathComponents.count >= 6, pathComponents[3] == "tree" else {
-            print("Error downloading: invalid HuggingFace tree URL \(modelInfo.url)")
+            print("Error downloading: invalid HuggingFace tree URL \(urlString)")
             self.downloadStatus = "Invalid model URL"
             return
         }
@@ -203,9 +291,17 @@ class ModelManager: ObservableObject {
     }
     
     // Unload
-    func unloadModel() {
-        self.engine = nil
+    func unloadModel() async {
+        await unloadEngine()
         self.currentModelName = nil
+    }
+    
+    /// Releases the loaded engine's memory; leaves `currentModelName` to the caller.
+    private func unloadEngine() async {
+        if let engine {
+            await engine.unload()
+        }
+        self.engine = nil
         self.isModelLoaded = false
     }
 
@@ -239,6 +335,12 @@ class ModelManager: ObservableObject {
                 }
             }
         }
+    }
+    
+    /// Load failures that come from ModelManager itself rather than an engine.
+    private enum LoadError: Error {
+        /// No engine implementation exists for this kind yet.
+        case engineUnavailable(SpeechEngine)
     }
     
     // Track the in-flight download for cancellation
