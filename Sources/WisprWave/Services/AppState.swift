@@ -22,6 +22,18 @@ class AppState: ObservableObject {
             UserDefaults.standard.set(isBoostMode, forKey: "WisprWave.IsBoostMode")
         }
     }
+    // VAD-powered auto-stop. Opt-in. The countdown only begins after the user actually
+    // speaks, so hitting the hotkey then thinking briefly doesn't trip it.
+    @Published var isAutoStopEnabled: Bool = UserDefaults.standard.bool(forKey: "WisprWave.IsAutoStopEnabled") {
+        didSet {
+            UserDefaults.standard.set(isAutoStopEnabled, forKey: "WisprWave.IsAutoStopEnabled")
+        }
+    }
+    @Published var autoStopSilenceSeconds: Double = (UserDefaults.standard.object(forKey: "WisprWave.AutoStopSilenceSeconds") as? Double) ?? 5.0 {
+        didSet {
+            UserDefaults.standard.set(autoStopSilenceSeconds, forKey: "WisprWave.AutoStopSilenceSeconds")
+        }
+    }
     
     let hotKeyService = HotKeyService()
     let audioRecorder = AudioRecorder()
@@ -111,7 +123,16 @@ class AppState: ObservableObject {
                 // Audio Feedback
                 NSSound(named: "Tink")?.play()
                 
-                try audioRecorder.startRecording(useLegacy: isLegacyMode)
+                // Wire VAD auto-stop. AudioRecorder calls this on MainActor when sustained
+                // silence exceeds the threshold, after the user has spoken at least once.
+                audioRecorder.onAutoStop = { [weak self] in
+                    self?.stopListening()
+                }
+                try audioRecorder.startRecording(
+                    useLegacy: isLegacyMode,
+                    autoStopEnabled: isAutoStopEnabled,
+                    autoStopSilenceSeconds: autoStopSilenceSeconds
+                )
                 isListening = true
                 transcribedText = "" // Reset
                 lastInjectedText = ""
@@ -198,8 +219,9 @@ class AppState: ObservableObject {
         
         Task { @MainActor in
             
-            // Stop recording (closes the stream if active)
-            let audioSamples = audioRecorder.stopRecording()
+            // Stop recording (closes the stream if active). Awaits a brief drain so
+            // late capture-session sample buffers land in the buffer before we read it.
+            let audioSamples = await audioRecorder.stopRecording()
             
             if !isLegacyMode {
                 // Check if we were streaming

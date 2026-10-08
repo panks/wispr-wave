@@ -1,0 +1,14 @@
+[Unit]
+Description=WisprWave dictation daemon (local speech-to-text)
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/share/wisprwave/venv/bin/python %h/code/wispr-wave/linux/wisprwave_daemon.py serve
+Restart=on-failure
+RestartSec=2
+# wl-copy needs the Wayland display; harmless if the session names it differently
+Environment=WAYLAND_DISPLAY=wayland-0
+
+[Install]
+WantedBy=default.target

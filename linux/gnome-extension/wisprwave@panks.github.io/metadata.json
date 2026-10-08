@@ -1,0 +1,7 @@
+{
+  "uuid": "wisprwave@panks.github.io",
+  "name": "WisprWave",
+  "description": "Clipboard and focused-window D-Bus service for the WisprWave dictation daemon. Lets the daemon set/read the clipboard without wl-clipboard's focus-stealing phantom windows (GNOME offers no data-control protocol), and exposes the focused window class, which Wayland hides from ordinary processes.",
+  "shell-version": ["48", "49", "50"],
+  "url": "https://github.com/panks/WisprWave"
+}

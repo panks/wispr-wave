@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=WisprWave
+Comment=Local speech-to-text dictation
+Exec=systemctl --user start wisprwave.service wisprwave-tray.service
+Icon=wisprwave-app
+Terminal=false
+Categories=Utility;
+StartupNotify=false

@@ -46,16 +46,29 @@ struct ContentView: View {
                         .font(.caption)
                         .fontWeight(.bold)
                         .foregroundColor(.red)
-                    
+
                     Text("Grant permission to allow text insertion.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
-                    
-                    Button("Grant Permission") {
+
+                    Button("Open Accessibility Settings") {
                         appState.permissionManager.requestAccessibilityPermission()
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+
+                    // If the app was updated, the old grant is bound to the previous
+                    // build's signature and won't apply. Re-adding + relaunching fixes it.
+                    Text("Already enabled it? After updating the app you may need to remove WisprWave from the list, add it again, then relaunch.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Button("Relaunch WisprWave") {
+                        appState.permissionManager.relaunchApp()
+                    }
+                    .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
                 .padding(8)
@@ -109,12 +122,36 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .help("Use file-based recording (slower but more compatible)")
-                    
+
                     Toggle("Boost🚀", isOn: $appState.isBoostMode)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .disabled(appState.isLegacyMode)
                         .help("Enable background streaming for faster results")
+                }
+
+                HStack(spacing: 8) {
+                    Toggle("Auto-stop after", isOn: $appState.isAutoStopEnabled)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .disabled(appState.isLegacyMode)
+                        .help("Automatically finalize the dictation once you've been silent for the selected duration. Countdown starts only after you've actually spoken.")
+
+                    Picker("", selection: $appState.autoStopSilenceSeconds) {
+                        Text("3s").tag(3.0)
+                        Text("5s").tag(5.0)
+                        Text("7s").tag(7.0)
+                        Text("10s").tag(10.0)
+                        Text("15s").tag(15.0)
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .font(.caption)
+                    .disabled(!appState.isAutoStopEnabled || appState.isLegacyMode)
+
+                    Text("of silence")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 
                 HStack {
@@ -127,6 +164,10 @@ struct ContentView: View {
         }
         .frame(width: 320)
         .padding(.bottom, 10)
+        // Lock the layout to its intrinsic content size so MenuBarExtra(.window) doesn't
+        // wrap it with extra translucent chrome above/below — that "peach halo" effect was
+        // the window's material showing the desktop through space SwiftUI wasn't filling.
+        .fixedSize()
         .onAppear {
             appState.modelManager.scanModels()
         }
