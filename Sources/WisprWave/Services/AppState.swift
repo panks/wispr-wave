@@ -204,9 +204,9 @@ class AppState: ObservableObject {
                     injectionTask?.cancel() // Cancel any pending debounce
                     
                     let text = transcribedText
-                    // Hide HUD right before injection
-                    isProcessing = false
+                    // Hide HUD right before injection, before changing its content
                     hudWindow?.hide()
+                    isProcessing = false
                     // Inject the final text
                     if !text.isEmpty {
                          print("Injecting final text...")
@@ -229,13 +229,12 @@ class AppState: ObservableObject {
                     
                     do {
                         if let text = try await modelManager.transcribe(audioSamples: audioSamples) {
+                            // Hide HUD right before injection, before changing its content
+                            hudWindow?.hide()
+                            isProcessing = false
                             transcribedText = text
                             status = "Done: \(text)"
-                            
-                            // Hide HUD right before injection
-                            isProcessing = false
-                            hudWindow?.hide()
-                            
+
                             // Inject Text
                             print("Injecting text: \(text)")
                             TextInjector.shared.inject(text: text)
@@ -260,13 +259,12 @@ class AppState: ObservableObject {
                 do {
                     print("Starting transcription...")
                     if let text = try await modelManager.transcribe(audioSamples: audioSamples) {
+                        // Hide HUD right before injection, before changing its content
+                        hudWindow?.hide()
+                        isProcessing = false
                         transcribedText = text
                         status = "Done: \(text)"
-                        
-                        // Hide HUD right before injection
-                        isProcessing = false
-                        hudWindow?.hide()
-                        
+
                         // Inject Text
                         print("Injecting text: \(text)")
                         TextInjector.shared.inject(text: text)
@@ -284,8 +282,8 @@ class AppState: ObservableObject {
             
             // Ensure HUD is hidden if we got here without injecting (e.g. error/empty)
             if isProcessing {
-                isProcessing = false
                 hudWindow?.hide()
+                isProcessing = false
             }
             
             // Reset to idle after a delay

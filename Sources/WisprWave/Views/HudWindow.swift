@@ -19,8 +19,15 @@ class HudWindow: NSPanel {
     }
     
     func setContentView<Content: View>(view: Content) {
-        self.contentViewController = NSHostingController(rootView: view)
+        let controller = NSHostingController(rootView: view)
+        // Keep SwiftUI from resizing the panel when the HUD content changes.
+        // Content-driven resizes caused a constraint-update loop that macOS 27 turns into a crash.
+        controller.sizingOptions = []
+        self.contentViewController = controller
+        self.setContentSize(HudWindow.contentSize)
     }
+
+    static let contentSize = NSSize(width: 300, height: 50)
     
     func show() {
         // Center near cursor or bottom center of screen
@@ -63,12 +70,15 @@ struct HudView: View {
             
             Text(appState.status)
                 .font(.system(size: 14, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Material.ultraThin)
         .cornerRadius(10)
         .padding(1) // Border-like effect container if needed
+        .frame(maxWidth: .infinity, maxHeight: .infinity) // Center within the fixed-size panel
     }
 }
 
