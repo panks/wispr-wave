@@ -64,7 +64,7 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
 
-                    Button("Open Accessibility Settings") {
+                    Button("Grant Permission") {
                         appState.permissionManager.requestAccessibilityPermission()
                     }
                     .buttonStyle(.borderedProminent)
@@ -77,11 +77,20 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
 
-                    Button("Relaunch WisprWave") {
-                        appState.permissionManager.relaunchApp()
+                    HStack(spacing: 8) {
+                        // Direct link for when macOS shows no prompt (stale entry in the list)
+                        Button("Open Settings") {
+                            appState.permissionManager.openAccessibilitySettings()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+
+                        Button("Relaunch WisprWave") {
+                            appState.permissionManager.relaunchApp()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
                 .padding(8)
                 .background(Color.red.opacity(0.1))

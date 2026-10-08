@@ -27,13 +27,14 @@ class PermissionManager: ObservableObject {
         }
     }
 
-    /// User asked to grant permission. Show the system prompt *and* open the exact
-    /// Settings pane — the prompt alone often does nothing once the app already has a
-    /// (stale) entry in the list, so the deep link is the reliable path.
+    /// User asked to grant permission: show the system prompt, whose "Open System
+    /// Settings" button takes them to the right pane. Opening Settings here as well would
+    /// put the pane on screen behind the prompt. If the app already has a (stale) entry
+    /// in the list, macOS may show no prompt; the popup offers openAccessibilitySettings()
+    /// separately for that case.
     func requestAccessibilityPermission() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
         _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
-        openAccessibilitySettings()
     }
 
     /// Opens System Settings → Privacy & Security → Accessibility.
