@@ -140,8 +140,10 @@ class AppState: ObservableObject {
                 print("Recording started, status: \(status)")
                 hudWindow?.show()
                 
-                // Start Streaming Task if not legacy and Boost Mode is ON
-                if !isLegacyMode && isBoostMode, let audioStream = audioRecorder.audioStream {
+                // Start Streaming Task if not legacy and Boost Mode is ON (Whisper only;
+                // Parakeet always takes the full-buffer path in stopListening)
+                if !isLegacyMode && isBoostMode && modelManager.activeEngine == .whisper,
+                   let audioStream = audioRecorder.audioStream {
                     print("Starting streaming task...")
                     streamingTask = Task {
                         do {
@@ -262,11 +264,15 @@ class AppState: ObservableObject {
                             hudWindow?.hide()
                             isProcessing = false
                             transcribedText = text
-                            status = "Done: \(text)"
+                            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                status = "No speech detected"
+                            } else {
+                                status = "Done: \(text)"
 
-                            // Inject Text
-                            print("Injecting text: \(text)")
-                            TextInjector.shared.inject(text: text)
+                                // Inject Text
+                                print("Injecting text: \(text)")
+                                TextInjector.shared.inject(text: text)
+                            }
                             
                             print("Transcribed: \(text)")
                         } else {
@@ -292,11 +298,15 @@ class AppState: ObservableObject {
                         hudWindow?.hide()
                         isProcessing = false
                         transcribedText = text
-                        status = "Done: \(text)"
+                        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            status = "No speech detected"
+                        } else {
+                            status = "Done: \(text)"
 
-                        // Inject Text
-                        print("Injecting text: \(text)")
-                        TextInjector.shared.inject(text: text)
+                            // Inject Text
+                            print("Injecting text: \(text)")
+                            TextInjector.shared.inject(text: text)
+                        }
                         
                         print("Transcribed: \(text)")
                     } else {

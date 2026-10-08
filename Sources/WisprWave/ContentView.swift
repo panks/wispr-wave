@@ -31,8 +31,20 @@ struct ContentView: View {
                     let status = appState.modelManager.isModelLoaded ? "Using: \(displayName)" : "Loading \(displayName)..."
                     Text(status)
                         .foregroundStyle(.secondary)
+                } else if appState.modelManager.isLoadingModel {
+                    // Engine switch: the old model is unloading, the new one not yet named
+                    Text("Loading...")
+                        .foregroundStyle(.secondary)
+                } else if let failedId = appState.modelManager.loadErrorModelName {
+                    let displayName = appState.modelManager.supportedModels.first(where: { $0.id == failedId })?.name ?? failedId
+                    Text("Couldn't load \(displayName)")
+                        .foregroundStyle(.secondary)
+                        .foregroundColor(.orange)
                 } else {
-                    Text("Download a Model")
+                    // Nothing loaded: ask for a download, or a power press if one is on disk
+                    let manager = appState.modelManager
+                    let hasDownloaded = manager.visibleModels.contains { manager.downloadedModels.contains($0.id) }
+                    Text("\(hasDownloaded ? "Select" : "Download") a \(manager.activeEngine.displayName) model")
                         .foregroundStyle(.secondary)
                         .foregroundColor(.orange)
                 }
@@ -78,7 +90,26 @@ struct ContentView: View {
             }
             
             Divider()
-            
+
+            // --- Engine Switch ---
+            // Sets the active engine (not just a filter); disabled whenever a model
+            // swap could land under a dictation, download or another load.
+            Picker("Engine", selection: Binding(
+                get: { appState.modelManager.activeEngine },
+                set: { engine in
+                    Task { await appState.modelManager.switchEngine(to: engine) }
+                }
+            )) {
+                ForEach(SpeechEngine.allCases, id: \.self) { engine in
+                    Text(engine.displayName).tag(engine)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal)
+            .disabled(appState.isListening || appState.isProcessing
+                      || appState.modelManager.isDownloading || appState.modelManager.isLoadingModel)
+
             // --- Model List ---
             ScrollView {
                 VStack(spacing: 8) {
@@ -126,8 +157,11 @@ struct ContentView: View {
                     Toggle("Boost🚀", isOn: $appState.isBoostMode)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .disabled(appState.isLegacyMode)
-                        .help("Enable background streaming for faster results")
+                        // Streaming is Whisper-only; the saved value is kept for switching back
+                        .disabled(appState.isLegacyMode || appState.modelManager.activeEngine == .parakeet)
+                        .help(appState.modelManager.activeEngine == .parakeet
+                              ? "Not needed with Parakeet"
+                              : "Enable background streaming for faster results")
                 }
 
                 HStack(spacing: 8) {
@@ -221,7 +255,9 @@ struct ModelRow: View {
                     // "if the model is not downloaded the button is grayed out/inactive"
             }
             .buttonStyle(.plain)
-            .disabled(!isDownloaded)
+            // Loading unloads the current model first, so never during a load or dictation
+            .disabled(!isDownloaded || appState.modelManager.isLoadingModel
+                      || appState.isListening || appState.isProcessing)
         }
         .padding(6)
         .background(Color.gray.opacity(0.1))
