@@ -73,7 +73,12 @@ class ModelManager: ObservableObject {
         do {
             let items = try FileManager.default.contentsOfDirectory(at: modelStoragePath, includingPropertiesForKeys: nil)
             let directories = items.filter { $0.hasDirectoryPath }.map { $0.lastPathComponent }
-            
+                .filter { name in
+                    // A Parakeet folder may hold an interrupted download; only count it when complete.
+                    guard ModelsConfig.model(id: name)?.engine == .parakeet else { return true }
+                    return ParakeetEngine.isDownloaded(modelId: name, in: modelStoragePath)
+                }
+
             DispatchQueue.main.async {
                 self.downloadedModels = Set(directories)
                 
@@ -127,7 +132,8 @@ class ModelManager: ObservableObject {
                 print("Loading WhisperKit with model: \(name)")
                 loaded = try await WhisperEngine(modelName: name, modelStoragePath: modelStoragePath)
             case .parakeet:
-                throw LoadError.engineUnavailable(.parakeet)
+                print("Loading Parakeet with model: \(name)")
+                loaded = try await ParakeetEngine(modelName: name, modelStoragePath: modelStoragePath)
             }
             
             self.engine = loaded
@@ -187,21 +193,46 @@ class ModelManager: ObservableObject {
     }
     
     // Download a specific model (User clicked "Download")
-    //
-    // Uses WhisperKit's built-in Swift downloader (backed by swift-transformers' HubApi),
-    // which fetches model files straight from HuggingFace in-process. This avoids depending
-    // on an external `hf`/`huggingface-cli` binary — which is rarely installed and, even when
-    // it is, isn't on the minimal PATH a Finder-launched .app inherits.
     func downloadModel(modelId: String) async {
         guard !isDownloading else { return }
 
         // Find model info
         guard let modelInfo = ModelsConfig.model(id: modelId) else { return }
 
-        // Parakeet downloads arrive with ParakeetEngine.
-        guard modelInfo.engine == .whisper, let urlString = modelInfo.url else {
-            print("Download of \(modelId) (\(modelInfo.engine.rawValue)) is not supported yet")
-            return
+        let task: Task<Bool, Never>
+        switch modelInfo.engine {
+        case .whisper:
+            guard let whisperTask = startWhisperDownload(modelInfo) else { return }
+            task = whisperTask
+        case .parakeet:
+            task = startParakeetDownload(modelInfo)
+        }
+
+        self.downloadTask = task
+        let success = await task.value
+
+        if success {
+            print("Updating UI after download completion")
+            self.scanModels() // Refresh list
+        }
+        // After cancelDownload() the UI is already reset, and a newer download may own it.
+        guard self.downloadTask == task else { return }
+        self.downloadTask = nil
+        self.downloadProgress = success ? 1.0 : 0.0
+        self.isDownloading = false
+    }
+
+    // Uses WhisperKit's built-in Swift downloader (backed by swift-transformers' HubApi),
+    // which fetches model files straight from HuggingFace in-process. This avoids depending
+    // on an external `hf`/`huggingface-cli` binary — which is rarely installed and, even when
+    // it is, isn't on the minimal PATH a Finder-launched .app inherits.
+    //
+    // Returns the running download task, or nil if the catalog URL is unusable.
+    private func startWhisperDownload(_ modelInfo: ModelsConfig.ModelInfo) -> Task<Bool, Never>? {
+        guard let urlString = modelInfo.url else {
+            print("Error downloading: \(modelInfo.id) has no URL")
+            self.downloadStatus = "Invalid model URL"
+            return nil
         }
 
         // Parse HuggingFace URL
@@ -210,7 +241,7 @@ class ModelManager: ObservableObject {
         guard let url = URL(string: urlString) else {
             print("Error downloading: invalid URL \(urlString)")
             self.downloadStatus = "Invalid model URL"
-            return
+            return nil
         }
 
         let pathComponents = url.pathComponents
@@ -218,7 +249,7 @@ class ModelManager: ObservableObject {
         guard pathComponents.count >= 6, pathComponents[3] == "tree" else {
             print("Error downloading: invalid HuggingFace tree URL \(urlString)")
             self.downloadStatus = "Invalid model URL"
-            return
+            return nil
         }
 
         let repo = "\(pathComponents[1])/\(pathComponents[2])"  // "plive/whisperkit-coreml"
@@ -228,7 +259,7 @@ class ModelManager: ObservableObject {
         self.downloadProgress = 0.0
         self.downloadStatus = "Preparing \(modelInfo.name)..."
 
-        print("Downloading model: \(modelId) (variant: \(variant)) from \(repo)")
+        print("Downloading model: \(modelInfo.id) (variant: \(variant)) from \(repo)")
 
         let destinationURL = self.modelStoragePath.appendingPathComponent(modelInfo.id)
         // Fresh temp base per download; WhisperKit writes to <base>/models/<repo>/<variant>.
@@ -276,18 +307,57 @@ class ModelManager: ObservableObject {
             }
         }
 
-        self.downloadTask = task
-        let success = await task.value
-        self.downloadTask = nil
+        return task
+    }
 
-        if success {
-            print("Updating UI after download completion")
-            self.scanModels() // Refresh list
-            self.downloadProgress = 1.0
-        } else {
-            self.downloadProgress = 0.0
+    // Uses FluidAudio's downloader, which writes straight into Models/<id>. A cancelled or
+    // failed download deletes that folder, so the row offers the download again.
+    private func startParakeetDownload(_ modelInfo: ModelsConfig.ModelInfo) -> Task<Bool, Never> {
+        let modelId = modelInfo.id
+        let name = modelInfo.name
+        let storagePath = modelStoragePath
+        let destinationURL = storagePath.appendingPathComponent(modelId)
+        let previousDownload = cancelledDownloadTask
+        cancelledDownloadTask = nil
+
+        self.isDownloading = true
+        self.downloadProgress = 0.0
+        self.downloadStatus = "Preparing \(name)..."
+
+        print("Downloading Parakeet model: \(modelId)")
+
+        // FluidAudio calls this on an arbitrary queue; hop back to update UI.
+        let onProgress: @Sendable (Double, Bool) -> Void = { [weak self] fraction, isTransferring in
+            Task { @MainActor in
+                guard let self, self.isDownloading else { return }
+                // Hops can land out of order; never move the bar backwards.
+                self.downloadProgress = max(self.downloadProgress, fraction)
+                self.downloadStatus = isTransferring
+                    ? "Downloading \(name) (\(Int(self.downloadProgress * 100))%)..."
+                    : "Preparing \(name)..."
+            }
         }
-        self.isDownloading = false
+
+        // Run as a cancellable task so cancelDownload() can stop it mid-flight.
+        return Task { () -> Bool in
+            // A cancelled download may still be deleting this same folder.
+            _ = await previousDownload?.value
+            do {
+                try Task.checkCancellation()
+                try await ParakeetEngine.download(modelId: modelId, to: storagePath, progress: onProgress)
+                print("Parakeet download complete!")
+                return true
+            } catch {
+                if Task.isCancelled {
+                    print("Download cancelled")
+                } else {
+                    print("Error downloading: \(error)")
+                    self.downloadStatus = "Download failed: \(error.localizedDescription)"
+                }
+                try? FileManager.default.removeItem(at: destinationURL)
+                return false
+            }
+        }
     }
     
     // Unload
@@ -337,18 +407,16 @@ class ModelManager: ObservableObject {
         }
     }
     
-    /// Load failures that come from ModelManager itself rather than an engine.
-    private enum LoadError: Error {
-        /// No engine implementation exists for this kind yet.
-        case engineUnavailable(SpeechEngine)
-    }
-    
     // Track the in-flight download for cancellation
     private var downloadTask: Task<Bool, Never>?
+    /// A cancelled download that may still be cleaning up its files; the next download
+    /// waits for it so the two never touch the same folder at once.
+    private var cancelledDownloadTask: Task<Bool, Never>?
 
     // Cancel any active download
     func cancelDownload() {
         downloadTask?.cancel()
+        cancelledDownloadTask = downloadTask
         downloadTask = nil
         isDownloading = false
         downloadProgress = 0.0
