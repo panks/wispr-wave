@@ -157,8 +157,11 @@ class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleB
         let queue = DispatchQueue(label: "com.wisprwave.audioQueue")
         output.setSampleBufferDelegate(self, queue: queue)
         
-        Task.detached {
-            session.startRunning()
+        // startRunning() blocks, so run it off the main thread. AVCaptureSession is
+        // safe to start from a background queue; the compiler can't verify that.
+        nonisolated(unsafe) let sessionToStart = session
+        queue.async {
+            sessionToStart.startRunning()
         }
     }
     

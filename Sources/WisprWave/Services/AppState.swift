@@ -80,6 +80,13 @@ class AppState: ObservableObject {
             print("Already listening, returning")
             return
         }
+
+        // Don't start a new dictation while the previous one is still transcribing,
+        // so two transcriptions never run on the same WhisperKit instance at once.
+        guard !isProcessing else {
+            print("Still processing previous dictation, returning")
+            return
+        }
         
         // Master switch check
         guard isAppEnabled else {
