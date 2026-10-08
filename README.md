@@ -2,7 +2,7 @@
 
 **The Intelligent, Private, Fast Speech-to-Text for macOS.**
 
-**WisprWave** brings OpenAI's powerful **Whisper** models directly to your Mac menu bar. Experience class-leading transcription speed and accuracy without sending a single byte of data to the cloud. It's completely free, works offline, and injects text into *any* application.
+**WisprWave** brings OpenAI's powerful **Whisper** models, and NVIDIA's **Parakeet** models, directly to your Mac menu bar. Experience class-leading transcription speed and accuracy without sending a single byte of data to the cloud. It's completely free, works offline, and injects text into *any* application.
 
 
 <p align="center">
@@ -14,9 +14,9 @@
 
 ## Key Features
 
-*   **⚡️ Blazing Fast:** Powered by `WhisperKit` and optimized for Apple Silicon (CoreML). Transcription happens locally and instantly.
+*   **⚡️ Blazing Fast:** Powered by `WhisperKit` and `FluidAudio`, optimized for Apple Silicon (CoreML). Transcription happens locally and instantly.
 *   **🔒 100% Private:** Your voice never leaves your device. Works completely offline—airplane mode approved.
-*   **🤖 State-of-the-Art Accuracy:** Supports the latest Whisper Large-v3 models (and smaller variants) for nuanced, accurate transcription.
+*   **🤖 State-of-the-Art Accuracy:** Supports the latest Whisper Large-v3 models (and smaller variants), plus NVIDIA Parakeet TDT v2 and v3, for nuanced, accurate transcription.
 *   **⌨️ Universal Dictation:** Injects text directly into your active application (Notes, Slack, Obsidian, VS Code, etc.).
 *   **💻 VM Compatible:** Special legacy mode designed for virtual machines (VMware, Parallels, UTM).
 
@@ -41,6 +41,21 @@ Records all audio first, then transcribes the full buffer in one pass after you 
 Some virtualized environments restrict direct hardware audio access required for streaming.
 *   **Dependable:** Records to a temporary file first, then transcribes.
 *   **Ideal For:** Use this if you are running macOS inside a VM or experience audio driver issues.
+
+
+## Choosing a Speech Engine
+
+WisprWave ships two speech engines. **Whisper** is the default; **Parakeet** is opt-in.
+
+*   **Whisper:** The full range of Whisper models, from Tiny to Large-v3, and the only engine that supports Boost Mode.
+*   **Parakeet v2 (English):** NVIDIA's Parakeet TDT 0.6B v2, the most accurate choice for English.
+*   **Parakeet v3 (25 languages):** Parakeet TDT 0.6B v3, for 25 European languages.
+
+**Switching:** Use the **Whisper | Parakeet** switch at the top of the model list in the menu-bar popup. Switching unloads the current model and loads the last model you used with the other engine, so only one model is ever in memory.
+
+**Downloads:** Each Parakeet model is about 460–480 MB and is stored in `~/Library/Application Support/WisprWave/Models`, alongside your Whisper models. After the download, the first-time preparation takes about 15 seconds; later loads are near-instant.
+
+**Modes:** Boost is Whisper-only and is greyed out under Parakeet. It isn't needed: Parakeet transcribes a whole recording in well under a second (about 0.13 s for 29 s of audio on an M4 Max). Legacy Mode and auto-stop work with both engines.
 
 
 ## Download
@@ -97,6 +112,13 @@ WisprWave is open-source. Build it directly from the codebase in minutes.
 Contributions are welcome! Feel free to open issues or submit pull requests to make WisprWave even better.
 
 
+## Credits
+
+*   **Whisper** models by OpenAI, run with [WhisperKit](https://github.com/argmaxinc/WhisperKit).
+*   **Parakeet TDT 0.6B v2 / v3** by NVIDIA, with Core ML conversions by FluidInference ([v2](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v2-coreml), [v3](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml)), licensed CC-BY-4.0.
+*   **[FluidAudio](https://github.com/FluidInference/FluidAudio)** (Apache-2.0) runs the Parakeet models on the Neural Engine.
+
+
 ## License
 
-MIT License. Free for everyone.
+MIT License. Free for everyone. The Parakeet models are licensed separately under CC-BY-4.0 (see Credits).
